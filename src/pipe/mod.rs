@@ -30,7 +30,7 @@ static GLOBAL_HTTP_502: AtomicU64 = AtomicU64::new(0);
 static GLOBAL_HTTP_503: AtomicU64 = AtomicU64::new(0);
 
 pub async fn metrics() -> Result<Response<Full<Bytes>>, hyper::Error> {
-    Ok(Response::new(Full::new(Bytes::from(format!(
+    let mut response = Response::new(Full::new(Bytes::from(format!(
         "\
         rss_pipe_status_code_count{{status_code=\"200\"}} {}\n\
         rss_pipe_status_code_count{{status_code=\"304\"}} {}\n\
@@ -40,7 +40,14 @@ pub async fn metrics() -> Result<Response<Full<Bytes>>, hyper::Error> {
         GLOBAL_HTTP_304.load(Ordering::Relaxed),
         GLOBAL_HTTP_502.load(Ordering::Relaxed),
         GLOBAL_HTTP_503.load(Ordering::Relaxed)
-    )))))
+    ))));
+    response.headers_mut().insert(
+        "Content-Type",
+        "text/plain; version=0.0.4; charset=utf-8; escaping=values"
+            .parse()
+            .unwrap(),
+    );
+    Ok(response)
 }
 
 fn handle_error(uri: &str, message: String) -> String {
