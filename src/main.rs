@@ -29,7 +29,7 @@ async fn handle(
             .insert("Content-Type", "application/json".parse().unwrap());
         Ok(response)
     } else if req.uri().path().starts_with("/metrics") {
-        pipe::metrics().await
+        pipe::metrics(db).await
     } else if let Some(path) = req.uri().path().strip_prefix("/http/") {
         parser.enqueue_http(format!("http://{}", path), req).await
     } else if let Some(path) = req.uri().path().strip_prefix("/https/") {
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 )
                 .await
             {
-                println!("Error serving connection: {:?}", err);
+                println!("!! error serving connection: {:?}", err);
             }
         });
     }

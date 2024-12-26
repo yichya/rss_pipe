@@ -1,3 +1,5 @@
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use rusqlite::Transaction;
 use serde::Serialize;
 
@@ -31,10 +33,18 @@ pub fn create_item(
     {
         return (existing_id, false);
     }
+    let created_at_string = match created_at {
+        0 => SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0))
+            .as_secs()
+            .to_string(),
+        _ => created_at.to_string(),
+    };
     if let Ok(new_id) = tx
         .prepare("insert into item (feed_id, guid, title, author, content, url, create_time) values (?1, ?2, ?3, ?4, ?5, ?6, datetime(?7, 'unixepoch')) returning id")
         .unwrap()
-        .query_row([feed_id.to_string(), guid.to_string(), title.to_string(), author.to_string(), html.to_string(), url.to_string(), created_at.to_string()], |row| row.get(0))
+        .query_row([feed_id.to_string(), guid.to_string(), title.to_string(), author.to_string(), html.to_string(), url.to_string(), created_at_string], |row| row.get(0))
     {
         return (new_id, true)
     }
@@ -47,7 +57,7 @@ pub fn set_item_read_status(tx: &Transaction, id: &str, status: &str) {
         .unwrap()
         .execute([status, id])
     {
-        println!("set item read status error: {}", e)
+        println!("!! error setting item read status: {}", e)
     }
 }
 
@@ -57,7 +67,7 @@ pub fn set_item_saved_status(tx: &Transaction, id: &str, status: &str) {
         .unwrap()
         .execute([status, id])
     {
-        println!("set item saved status error: {}", e)
+        println!("!! error setting item saved status: {}", e)
     }
 }
 
@@ -65,7 +75,10 @@ pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Vec<Ite
     // validation for filter_arg
     for x in filter_arg.split(",") {
         if let Err(e) = x.parse::<u64>() {
-            println!("invalid argument for get_items: {} ({})", filter_arg, e);
+            println!(
+                "!! parse argument failed for get_items: {} ({})",
+                filter_arg, e
+            );
             return vec![];
         }
     }
@@ -93,8 +106,8 @@ pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Vec<Ite
     result.unwrap()
 }
 
-pub fn get_total_items(tx: &Transaction) -> u64 {
-    tx.prepare("select count(*) from item")
+pub fn get_total_items(tx: &Transaction, extra_filter: &str) -> u64 {
+    tx.prepare(format!("select count(*) from item {}", extra_filter).as_str())
         .unwrap()
         .query_row([], |row| row.get(0))
         .unwrap_or(0)

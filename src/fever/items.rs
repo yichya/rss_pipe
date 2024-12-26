@@ -15,7 +15,7 @@ pub fn get_items(tx: &Transaction, actions: &HashMap<String, String>) -> Vec<ite
 }
 
 pub fn get_total_items(tx: &Transaction) -> String {
-    format!(", \"total_items\": {}", items::get_total_items(tx))
+    format!(", \"total_items\": {}", items::get_total_items(tx, ""))
 }
 
 pub fn get_unread_item_ids(tx: &Transaction) -> String {

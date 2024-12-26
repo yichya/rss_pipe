@@ -19,7 +19,7 @@ impl BarkRequest {
         let builder = Client::builder(hyper_util::rt::TokioExecutor::new());
         let client = builder.build(HttpConnector::new());
         let body = serde_json::to_string(self).unwrap_or("null".to_owned());
-        println!("request {}", body);
+        println!("building bark push request: {}", body);
         let req = Request::builder()
             .uri(destination)
             .method(Method::POST)
@@ -31,12 +31,12 @@ impl BarkRequest {
                     println!("complete bark push {}", s.status());
                 }
                 Err(e) => {
-                    println!("received error for bark push {}", e);
+                    println!("!! error received from bark push: {}", e);
                 }
             },
             Err(_) => {
                 println!(
-                    "======= Bark Preview =======\n{}\n{}\n============================",
+                    "======== Bark Preview ========\n{}\n{}\n==============================",
                     self.title,
                     self.body.trim_end_matches("\n")
                 )

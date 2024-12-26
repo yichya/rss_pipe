@@ -15,11 +15,11 @@ async fn parse_request_actions(req: Request<Incoming>) -> HashMap<String, String
     let query_string = req.uri().query().unwrap_or_else(|| "").to_owned();
     let body = match req.into_body().collect().await {
         Ok(v) => String::from_utf8(v.to_bytes().to_vec()).unwrap_or_else(|e| {
-            println!("convert body to string failed {}", e);
+            println!("!! error converting body to string: {}", e);
             "".into()
         }),
         Err(e) => {
-            println!("request body read failed {}", e);
+            println!("!! error reading request body: {}", e);
             "".into()
         }
     };
@@ -129,7 +129,7 @@ pub async fn entrance(
                 return_with_base_response(tx, "", &Vec::<u8>::new(), "")
             });
         } else {
-            println!("unauthorized, provided {}, expect {}", api_key, auth)
+            println!("!! token not valid, provided {}, expect {}", api_key, auth)
         }
     }
     unauthorized()

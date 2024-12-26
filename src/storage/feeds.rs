@@ -70,9 +70,9 @@ pub fn get_all_feeds(tx: &Transaction) -> Vec<(Feed, FeedUrl)> {
 pub fn upsert_feed(tx: &Transaction, url: &str, title: &str) -> (u64, u64, bool) {
     if let Some(feed_id) = get_feed_id_by_url(tx, url) {
         let last_updated: u64 = tx
-            .prepare("update feed set last_updated = current_timestamp where id = ?1 returning unixepoch(last_updated)")
+            .prepare("update feed set title = ?1, last_updated = current_timestamp where id = ?2 returning unixepoch(last_updated)")
             .unwrap()
-            .query_row([&feed_id], |row| row.get(0))
+            .query_row([&title, feed_id.to_string().as_str()], |row| row.get(0))
             .unwrap();
         (feed_id, last_updated, false)
     } else {

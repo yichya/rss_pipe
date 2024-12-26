@@ -28,18 +28,23 @@ static GLOBAL_HTTP_200: AtomicU64 = AtomicU64::new(0);
 static GLOBAL_HTTP_304: AtomicU64 = AtomicU64::new(0);
 static GLOBAL_HTTP_502: AtomicU64 = AtomicU64::new(0);
 static GLOBAL_HTTP_503: AtomicU64 = AtomicU64::new(0);
+static GLOBAL_PIPE_ERR: AtomicU64 = AtomicU64::new(0);
 
-pub async fn metrics() -> Result<Response<Full<Bytes>>, hyper::Error> {
+pub async fn metrics(db: &str) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let mut response = Response::new(Full::new(Bytes::from(format!(
         "\
         rss_pipe_status_code_count{{status_code=\"200\"}} {}\n\
         rss_pipe_status_code_count{{status_code=\"304\"}} {}\n\
         rss_pipe_status_code_count{{status_code=\"502\"}} {}\n\
-        rss_pipe_status_code_count{{status_code=\"503\"}} {}\n",
+        rss_pipe_status_code_count{{status_code=\"503\"}} {}\n\
+        rss_pipe_error_count{{}} {}\n\
+        rss_pipe_unread_count{{}} {}",
         GLOBAL_HTTP_200.load(Ordering::Relaxed),
         GLOBAL_HTTP_304.load(Ordering::Relaxed),
         GLOBAL_HTTP_502.load(Ordering::Relaxed),
-        GLOBAL_HTTP_503.load(Ordering::Relaxed)
+        GLOBAL_HTTP_503.load(Ordering::Relaxed),
+        GLOBAL_PIPE_ERR.load(Ordering::Relaxed),
+        transaction(db, |tx| items::get_total_items(tx, "where is_read = 0")),
     ))));
     response.headers_mut().insert(
         "Content-Type",
@@ -164,11 +169,13 @@ impl FeedConsumer {
                 println!("received status code 304 without existing feed, fetching again without cache: {}", url);
                 if let Ok(response) = proxy::http_https_get(url, self.proxy.as_str()).await {
                     if let Err(e) = self.enqueue_response_body(url.to_owned(), response).await {
-                        println!("received error {} enqueuing response body", e);
+                        GLOBAL_PIPE_ERR.fetch_add(1, Ordering::Relaxed);
+                        println!("!! error enqueuing response body: {}", e);
                     }
                 }
             }
         } else {
+            GLOBAL_PIPE_ERR.fetch_add(1, Ordering::Relaxed);
             println!(
                 "received status code {} handling feed {}: {}",
                 p.status_code, p.url, v
@@ -207,7 +214,8 @@ impl FeedConsumer {
             body: content.clone(),
         };
         if let Err(e) = self.sender.send(parse_request).await {
-            println!("{}", e);
+            GLOBAL_PIPE_ERR.fetch_add(1, Ordering::Relaxed);
+            println!("!! error sending data to pipe: {}", e);
         };
         Ok(Response::from_parts(parts, Full::new(content)))
     }
