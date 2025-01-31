@@ -1,5 +1,7 @@
 use nanohtml2text::html2text;
 
+const SIMILAR_RATIO: f32 = 0.9;
+
 fn levenshtein_distance(str1: &str, str2: &str) -> usize {
     if str1 == str2 {
         return 0;
@@ -97,8 +99,8 @@ fn clean_html(content: &str) -> String {
 }
 
 fn similar(title: &str, content: &str) -> bool {
-    let partial_ratio = partial_ratio(title, content);
-    partial_ratio > 0.9
+    let content_no_new_line = content.replace("\r\n", "");
+    partial_ratio(title, &content_no_new_line) > SIMILAR_RATIO
 }
 
 pub fn extract_content(title: &str, content: &str, max_size: usize) -> String {
