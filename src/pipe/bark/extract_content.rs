@@ -1,4 +1,5 @@
 use nanohtml2text::html2text;
+use regex::Regex;
 
 const SIMILAR_RATIO: f32 = 0.9;
 
@@ -94,8 +95,13 @@ fn partial_ratio(s1: &str, s2: &str) -> f32 {
 
 fn clean_html(content: &str) -> String {
     let content_br = content.replace("\n", "\n<br/>");
-    let content_no_link = content_br.replace("<a href", "<div ignore");
-    content_no_link.replace("</a>", "</div>")
+    let content_no_link = content_br
+        .replace("<a href", "<div ignore")
+        .replace("</a>", "</div>");
+    Regex::new("<img alt=['\"]([^'\"]*)['\"]")
+        .unwrap()
+        .replace_all(&content_no_link, "${1}<img")
+        .to_string()
 }
 
 fn similar(title: &str, content: &str) -> bool {
