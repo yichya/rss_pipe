@@ -6,6 +6,7 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+base64 = "0"
 bytes = "1"
 errno = "=0.3.9"
 feed-rs = "2"
@@ -14,18 +15,23 @@ http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-socks2 = { version = "0.9", features = ["hyper-tls"] }
 hyper-tls = "0.6"
-hyper-util = { version = "0.1", features = ["http1"] }
+hyper-util = { version = "=0.1.15", features = ["http1"] }
+mio = "=1.0.3"
 nanohtml2text = "0.2"
+pyo3 = "0.26"
+pyo3-ffi = "0.26"
 regex = "1"
-rusqlite = "0.34"
+rusqlite = "0"
 schannel = "=0.1.23"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 tempfile = "=3.11.0"
-tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+tokio = { version = "=1.46.1", features = ["macros", "net", "rt-multi-thread"] }
 uuid = "=1.12.1"
 
 [profile.release]
 codegen-units = 1
+panic = "abort"
 opt-level = 3
+strip = true
 lto = true

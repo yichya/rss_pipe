@@ -8,11 +8,11 @@ pub fn transaction<T>(db: &str, callback: impl Fn(&Transaction) -> T) -> T {
     let tx = conn.transaction().unwrap();
     let result = callback(&tx);
     if let Err(e) = tx.commit() {
-        println!("!! error committing transaction: {}", e);
+        println!("!! error committing transaction: {e}");
     }
     result
 }
 
-pub fn migrations() {
+pub fn migrations(_: &str) {
     // todo: handle database migrations later
 }

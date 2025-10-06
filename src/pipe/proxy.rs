@@ -2,84 +2,34 @@ use std::str::FromStr;
 
 use bytes::Bytes;
 use http::{
-    header::InvalidHeaderValue,
-    uri::{InvalidUri, Scheme, Uri},
     StatusCode,
+    uri::{InvalidUri, Scheme, Uri},
 };
 use http_body_util::{Empty, Full};
-use hyper::{body::Incoming, Request, Response};
-use hyper_socks2::{SocksConnector, TlsError};
+use hyper::{Request, Response, body::Incoming};
+use hyper_socks2::SocksConnector;
 use hyper_tls::HttpsConnector;
-use hyper_util::client::legacy::{connect::HttpConnector, Client};
+use hyper_util::client::legacy::{Client, connect::HttpConnector};
+
+use crate::common::PipeError;
 
 enum FetchRequest {
     GetUri(Uri),
     RequestIncoming(Request<Incoming>),
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
-pub enum ProxyError {
-    InvalidHeaderValueError,
-    UnsupportedSchemeError,
-    HyperError(hyper::Error),
-    HyperLegacyError(hyper_util::client::legacy::Error),
-    InvalidUri(InvalidUri),
-    HttpError(http::Error),
-    SocksError(TlsError),
-}
-
-impl From<hyper::Error> for ProxyError {
-    fn from(err: hyper::Error) -> ProxyError {
-        ProxyError::HyperError(err)
-    }
-}
-
-impl From<hyper_util::client::legacy::Error> for ProxyError {
-    fn from(err: hyper_util::client::legacy::Error) -> ProxyError {
-        ProxyError::HyperLegacyError(err)
-    }
-}
-
-impl From<TlsError> for ProxyError {
-    fn from(err: TlsError) -> ProxyError {
-        ProxyError::SocksError(err)
-    }
-}
-
-impl From<InvalidUri> for ProxyError {
-    fn from(err: InvalidUri) -> ProxyError {
-        ProxyError::InvalidUri(err)
-    }
-}
-
-impl From<http::Error> for ProxyError {
-    fn from(err: http::Error) -> ProxyError {
-        ProxyError::HttpError(err)
-    }
-}
-
-impl From<InvalidHeaderValue> for ProxyError {
-    fn from(_err: InvalidHeaderValue) -> ProxyError {
-        ProxyError::InvalidHeaderValueError
-    }
-}
-
 fn forward_uri<B>(forward_url: &str, req: &Request<B>) -> Result<Uri, InvalidUri> {
     let forward_uri = match req.uri().query() {
-        Some(query) => format!("{}?{}", forward_url, query),
+        Some(query) => format!("{forward_url}?{query}"),
         None => forward_url.into(),
     };
 
     Uri::from_str(forward_uri.as_str())
 }
 
-fn create_proxied_request<B>(
-    forward_url: &str,
-    mut request: Request<B>,
-) -> Result<Request<B>, ProxyError> {
+fn create_proxied_request<B>(forward_url: &str, mut request: Request<B>) -> Result<Request<B>, PipeError> {
     // todo: support gzip decompression later
-    match request.headers_mut().entry("Accept-Encoding").into() {
+    match request.headers_mut().entry("Accept-Encoding") {
         hyper::header::Entry::Vacant(entry) => {
             entry.insert("identity".parse()?);
         }
@@ -90,7 +40,7 @@ fn create_proxied_request<B>(
     // replace host
     let destination = forward_uri(forward_url, &request)?;
     if let Some(host) = destination.host() {
-        match request.headers_mut().entry("Host").into() {
+        match request.headers_mut().entry("Host") {
             hyper::header::Entry::Vacant(entry) => {
                 entry.insert(host.parse()?);
             }
@@ -105,16 +55,16 @@ fn create_proxied_request<B>(
 
 async fn handle_response(
     response: Result<Response<Incoming>, hyper_util::client::legacy::Error>,
-) -> Result<Response<Incoming>, ProxyError> {
+) -> Result<Response<Incoming>, PipeError> {
     match response {
         Ok(v) => Ok(v),
-        Err(e) => Err(ProxyError::HyperLegacyError(e)),
+        Err(e) => Err(PipeError::HyperLegacyError(e)),
     }
 }
 
-async fn https_fetch(request: FetchRequest, proxy: &str) -> Result<Response<Incoming>, ProxyError> {
+async fn https_fetch(request: FetchRequest, proxy: &str) -> Result<Response<Incoming>, PipeError> {
     let builder = Client::builder(hyper_util::rt::TokioExecutor::new());
-    let response = if proxy == "" {
+    let response = if proxy.is_empty() {
         match request {
             FetchRequest::RequestIncoming(request) => {
                 let client = builder.build(HttpsConnector::new());
@@ -150,7 +100,7 @@ async fn https_fetch(request: FetchRequest, proxy: &str) -> Result<Response<Inco
     handle_response(response).await
 }
 
-pub async fn http_https_get(uri: &str, proxy: &str) -> Result<Response<Incoming>, ProxyError> {
+pub async fn http_https_get(uri: &str, proxy: &str) -> Result<Response<Incoming>, PipeError> {
     let uri_parsed = Uri::from_str(uri)?;
     if let Some(a) = uri_parsed.scheme() {
         if a == &Scheme::HTTPS {
@@ -162,23 +112,20 @@ pub async fn http_https_get(uri: &str, proxy: &str) -> Result<Response<Incoming>
             return handle_response(response).await;
         };
     };
-    Err(ProxyError::UnsupportedSchemeError)
+    Err(PipeError::UnsupportedSchemeError)
 }
 
 pub async fn https_call(
     forward_uri: &str,
     request: Request<Incoming>,
     proxy: &str,
-) -> Result<Response<Incoming>, ProxyError> {
-    let proxied_request = create_proxied_request(&forward_uri, request)?;
+) -> Result<Response<Incoming>, PipeError> {
+    let proxied_request = create_proxied_request(forward_uri, request)?;
     https_fetch(FetchRequest::RequestIncoming(proxied_request), proxy).await
 }
 
-pub async fn http_call(
-    forward_uri: &str,
-    request: Request<Incoming>,
-) -> Result<Response<Incoming>, ProxyError> {
-    let proxied_request = create_proxied_request(&forward_uri, request)?;
+pub async fn http_call(forward_uri: &str, request: Request<Incoming>) -> Result<Response<Incoming>, PipeError> {
+    let proxied_request = create_proxied_request(forward_uri, request)?;
     let response = Client::builder(hyper_util::rt::TokioExecutor::new())
         .build(HttpConnector::new())
         .request(proxied_request)
@@ -186,9 +133,12 @@ pub async fn http_call(
     handle_response(response).await
 }
 
-pub fn handle_error(error: String) -> Result<Response<Full<Bytes>>, hyper::Error> {
-    Ok(Response::builder()
+pub fn handle_error(error: String) -> Result<Response<Full<Bytes>>, PipeError> {
+    match Response::builder()
         .status(StatusCode::BAD_GATEWAY)
         .body(Full::new(Bytes::from(error)))
-        .unwrap())
+    {
+        Ok(v) => Ok(v),
+        Err(e) => Err(e.into()),
+    }
 }
