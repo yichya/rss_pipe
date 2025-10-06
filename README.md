@@ -3,11 +3,11 @@
 A small middleware between RSS feed sources and RSS readers to:
 
 * Save RSS content locally (with [rusqlite](https://github.com/rusqlite/rusqlite)) for further use
-* Integrate with other content processing services (working in progress)
+* Integrate with other content processing services (with [pyo3](https://github.com/pyo3/pyo3))
 * Integrate with push services (currently only [Finb/Bark](https://github.com/Finb/Bark) is supported, more will be added later)
 * Integrate with reader apps (currently implemented a subset of Fever API; tested with [ReadKit](https://readkit.app/))
 
-Currently, updates are only triggered by external requests, so it is better to this tool with RSS bots:
+Currently, updates are only triggered by external requests, so it is better to use this tool with RSS bots:
 
 * [RSS-to-Telegram-Bot](https://github.com/Rongronggg9/RSS-to-Telegram-Bot)
 * [flowerss bot](https://github.com/indes/flowerss-bot)

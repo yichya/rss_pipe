@@ -16,6 +16,7 @@ pub struct FeedFever {
 
 pub fn get_all_feeds(tx: &Transaction) -> Vec<FeedFever> {
     feeds::get_all_feeds(tx)
+        .unwrap_or_default()
         .iter()
         .map(|(feed, feed_url)| FeedFever {
             id: feed.id,

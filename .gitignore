@@ -1,4 +1,4 @@
 /.idea
 /target
+*.log
 db.sqlite3*
-db_test.sqlite3*

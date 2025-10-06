@@ -6,10 +6,10 @@ use crate::storage::items;
 
 pub fn get_items(tx: &Transaction, actions: &HashMap<String, String>) -> Vec<items::Item> {
     if let Some(with_ids) = actions.get("with_ids") {
-        return items::get_items(tx, "with_ids", &with_ids.replace("%2C", ","));
+        return items::get_items(tx, "with_ids", &with_ids.replace("%2C", ",")).unwrap_or_default();
     }
     if let Some(since_id) = actions.get("since_id") {
-        return items::get_items(tx, "since_id", since_id);
+        return items::get_items(tx, "since_id", since_id).unwrap_or_default();
     }
     vec![]
 }
@@ -19,13 +19,13 @@ pub fn get_total_items(tx: &Transaction) -> String {
 }
 
 pub fn get_unread_item_ids(tx: &Transaction) -> String {
-    let ids = items::get_unread_item_ids(tx);
+    let ids = items::get_unread_item_ids(tx).unwrap_or_default();
     let ids_str: Vec<String> = ids.iter().map(|x| x.to_string()).collect();
     ids_str.join(",")
 }
 
 pub fn get_saved_item_ids(tx: &Transaction) -> String {
-    let ids = items::get_saved_item_ids(tx);
+    let ids = items::get_saved_item_ids(tx).unwrap_or_default();
     let ids_str: Vec<String> = ids.iter().map(|x| x.to_string()).collect();
     ids_str.join(",")
 }

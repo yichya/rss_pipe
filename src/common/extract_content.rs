@@ -32,7 +32,7 @@ fn levenshtein_distance(str1: &str, str2: &str) -> usize {
             } else {
                 1
             };
-            let v = vec![v1[j] + 1, v0[j + 1] + 1, v0[j] + cost];
+            let v = [v1[j] + 1, v0[j + 1] + 1, v0[j] + cost];
             v1[j + 1] = *v.iter().min().unwrap();
         }
         for j in 0..s2_len + 1 {
@@ -46,19 +46,13 @@ fn levenshtein_distance(str1: &str, str2: &str) -> usize {
 fn clean_str(s: &str) -> String {
     let cleaned: String = s
         .chars()
-        .map(|x| {
-            if x.is_alphabetic() || x.is_numeric() {
-                x
-            } else {
-                ' '
-            }
-        })
+        .map(|x| if x.is_alphabetic() || x.is_numeric() { x } else { ' ' })
         .collect();
     cleaned.trim_matches(' ').to_owned()
 }
 
 fn ratio(s1: &str, s2: &str) -> f32 {
-    if s1 == "" || s2 == "" {
+    if s1.is_empty() || s2.is_empty() {
         return 0.0;
     }
     let l = s1.chars().count() + s2.chars().count();
@@ -79,7 +73,6 @@ fn partial_ratio(s1: &str, s2: &str) -> f32 {
             min_str,
             max_str
                 .chars()
-                .into_iter()
                 .skip(i)
                 .take(min_str.chars().count())
                 .collect::<String>()
@@ -95,9 +88,7 @@ fn partial_ratio(s1: &str, s2: &str) -> f32 {
 
 fn clean_html(content: &str) -> String {
     let content_br = content.replace("\n", "\n<br/>");
-    let content_no_link = content_br
-        .replace("<a href", "<div ignore")
-        .replace("</a>", "</div>");
+    let content_no_link = content_br.replace("<a href", "<div ignore").replace("</a>", "</div>");
     Regex::new("<img alt=['\"]([^'\"]*)['\"]")
         .unwrap()
         .replace_all(&content_no_link, "${1}<img")
@@ -115,14 +106,14 @@ pub fn extract_content(title: &str, content: &str, max_size: usize) -> String {
     let content_final = if similar(title, content_extracted.as_str()) {
         content_extracted
     } else {
-        format!("{}\r\n{}", title, content_extracted)
+        format!("{title}\r\n{content_extracted}")
     }
     .trim()
     .to_owned();
     if content_final.chars().count() < max_size {
         content_final
     } else {
-        let content_trimmed: String = content_final.chars().into_iter().take(max_size).collect();
-        format!("{}...", content_trimmed)
+        let content_trimmed: String = content_final.chars().take(max_size).collect();
+        format!("{content_trimmed}...")
     }
 }
