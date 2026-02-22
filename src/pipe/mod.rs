@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bytes::{Buf, Bytes};
+use http::{Method, header};
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, StatusCode, body::Incoming};
 use tokio::sync::mpsc::{Sender, channel};
@@ -32,7 +34,7 @@ static GLOBAL_PIPE_ERR: AtomicU64 = AtomicU64::new(0);
 pub async fn metrics(db: &str) -> Result<Response<Full<Bytes>>, common::PipeError> {
     Response::builder()
         .header(
-            http::header::CONTENT_TYPE,
+            header::CONTENT_TYPE,
             "text/plain; version=0.0.4; charset=utf-8; escaping=values",
         )
         .body(Full::new(Bytes::from(format!(
@@ -75,7 +77,7 @@ impl Pipe {
             loop {
                 if let Some(p) = &receiver.recv().await {
                     match feed_rs::parser::parse(p.body.clone().reader()) {
-                        Ok(feed) => consumer.handle_feed(p.url.as_str(), feed).await,
+                        Ok(feed) => consumer.handle_feed(&p.url, feed).await,
                         Err(v) => consumer.handle_feed_error(p, v).await,
                     }
                 }
@@ -95,58 +97,85 @@ impl Pipe {
             Some(title) => title.content.clone(),
             None => "".into(),
         };
-        let bark_requests = storage::transaction(self.db.as_str(), |tx| {
+        let bark_requests = storage::transaction(&self.db, |tx| {
             let mut bark_requests: Vec<(&str, &str, &str, &str)> = Vec::new();
-            let (feed_id, url_id, feed_created) = storage::feeds::upsert_feed(tx, url, feed_title.as_str());
+            let (feed_id, url_id, feed_created) = storage::feeds::upsert_feed(tx, url, &feed_title);
             if feed_created {
-                bark_requests.push(("New Feed Subscription", "", feed_title.as_str(), ""));
+                bark_requests.push(("New Feed Subscription", "", &feed_title, ""));
                 println!("creating new feed {feed_title} [{feed_id}] {url} [{url_id}]");
             }
-            for item in feed.entries.iter().rev() {
-                let item_title = match &item.title {
-                    Some(title) => title.content.as_str(),
-                    None => "",
-                };
-                let content = match &item.content {
-                    Some(content) => match &content.body {
-                        Some(body) => body.as_str(),
+            if feed_id > 0 && url_id > 0 {
+                for item in feed.entries.iter().rev() {
+                    let item_title = match &item.title {
+                        Some(title) => &title.content,
                         None => "",
-                    },
-                    None => match &item.summary {
-                        Some(summary) => summary.content.as_str(),
+                    };
+                    let content = match &item.content {
+                        Some(content) => match &content.body {
+                            Some(body) => body,
+                            None => "",
+                        },
+                        None => match &item.summary {
+                            Some(summary) => &summary.content,
+                            None => "",
+                        },
+                    };
+                    let link = match item.links.first() {
+                        Some(link) => &link.href,
                         None => "",
-                    },
-                };
-                let link = match item.links.first() {
-                    Some(link) => link.href.as_str(),
-                    None => "",
-                };
-                let (item_id, item_created) = storage::items::create_item(
-                    tx,
-                    feed_id,
-                    item.id.as_str(),
-                    item_title,
-                    content,
-                    link,
-                    match item.authors.first() {
+                    };
+                    let author = match item.authors.first() {
                         Some(person) => match &person.email {
-                            Some(email) => email.as_str(),
-                            None => person.name.as_str(),
+                            Some(email) => email,
+                            None => &person.name,
                         },
                         None => "",
-                    },
-                    match item.published {
+                    };
+                    let created_at = match item.published {
                         Some(published) => published.timestamp() as u64,
                         None => match item.updated {
                             Some(updated) => updated.timestamp() as u64,
                             None => 0,
                         },
-                    },
-                );
-                if item_created {
-                    println!("creating new item {} [{}]", item.id, item_id);
-                    if !feed_created {
-                        bark_requests.push((feed_title.as_str(), item_title, content, link));
+                    };
+                    let created_at_str = match created_at {
+                        0 => SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or(Duration::from_secs(0))
+                            .as_secs(),
+                        _ => created_at,
+                    }
+                    .to_string();
+                    let (item_id_update, item_updated) = storage::valine::refresh_existing_item(
+                        tx,
+                        feed_id,
+                        &item.id,
+                        item_title,
+                        content,
+                        link,
+                        author,
+                        &created_at_str,
+                    );
+                    if item_updated {
+                        println!("updating existing item {} [{}]", item.id, item_id_update);
+                        bark_requests.push((&feed_title, item_title, content, link));
+                    } else {
+                        let (item_id, item_created) = storage::items::create_item(
+                            tx,
+                            feed_id,
+                            &item.id,
+                            item_title,
+                            content,
+                            link,
+                            author,
+                            &created_at_str,
+                        );
+                        if item_created {
+                            println!("creating new item {} [{}]", item.id, item_id);
+                            if !feed_created {
+                                bark_requests.push((&feed_title, item_title, content, link));
+                            }
+                        }
                     }
                 }
             }
@@ -160,7 +189,7 @@ impl Pipe {
                 "rss_pipe_rust",
                 Some(request.3.to_owned()),
                 None,
-                self.bark.as_str(),
+                &self.bark,
             )
             .await;
         }
@@ -168,11 +197,13 @@ impl Pipe {
 
     async fn handle_feed_error(&self, p: &ParseRequest, v: feed_rs::parser::ParseFeedError) {
         if p.status_code == StatusCode::NOT_MODIFIED {
-            let url = p.url.as_str();
-            if storage::transaction(self.db.as_str(), |tx| storage::feeds::get_feed_id_by_url(tx, url)).is_none() {
-                println!("received status code 304 without existing feed, fetching again without cache: {url}");
-                if let Ok(response) = proxy::http_https_get(url, self.proxy.as_str()).await {
-                    if let Err(e) = self.enqueue_response_body(url.to_owned(), response).await {
+            if storage::transaction(&self.db, |tx| storage::feeds::get_feed_id_by_url(tx, &p.url)).is_none() {
+                println!(
+                    "received status code 304 without existing feed, fetching again without cache: {}",
+                    p.url
+                );
+                if let Ok(response) = proxy::http_https_get(&p.url, &self.proxy).await {
+                    if let Err(e) = self.enqueue_response_body(p.url.to_owned(), response).await {
                         GLOBAL_PIPE_ERR.fetch_add(1, Ordering::Relaxed);
                         println!("!! error enqueuing response body: {e:?}");
                     }
@@ -226,9 +257,9 @@ impl Pipe {
         uri: String,
         req: Request<Incoming>,
     ) -> Result<Response<Full<Bytes>>, common::PipeError> {
-        match proxy::http_call(uri.as_str(), req).await {
+        match proxy::http_call(&uri, req).await {
             Ok(response) => self.enqueue_response_body(uri, response).await,
-            Err(error) => proxy::handle_error(handle_error(uri.as_str(), format!("{error:?}"))),
+            Err(error) => proxy::handle_error(handle_error(&uri, format!("{error:?}"))),
         }
     }
 
@@ -237,24 +268,26 @@ impl Pipe {
         uri: String,
         req: Request<Incoming>,
     ) -> Result<Response<Full<Bytes>>, common::PipeError> {
-        match proxy::https_call(uri.as_str(), req, self.proxy.as_str()).await {
+        match proxy::https_call(&uri, req, &self.proxy).await {
             Ok(response) => self.enqueue_response_body(uri, response).await,
-            Err(error) => proxy::handle_error(handle_error(uri.as_str(), format!("{error:?}"))),
+            Err(error) => proxy::handle_error(handle_error(&uri, format!("{error:?}"))),
         }
     }
 
     pub async fn enqueue_invoke(
         &self,
-        method: String,
+        path: String,
         req: Request<Incoming>,
     ) -> Result<Response<Full<Bytes>>, common::PipeError> {
-        let body = String::from_utf8(req.into_body().collect().await?.to_bytes().to_vec())?;
-        let content = self
-            .methods
-            .evaluate(method.as_str(), body.as_str(), false)
-            .unwrap_or(body);
+        let body = if req.method() == Method::POST {
+            String::from_utf8(req.into_body().collect().await?.to_bytes().to_vec())?
+        } else {
+            "".to_owned()
+        };
+        let (method, params) = path.split_once('/').unwrap_or((&path, &body));
+        let content = self.methods.evaluate(method, params, false).unwrap_or(body);
         let parse_request = ParseRequest {
-            url: format!("rss_pipe://{}/{}", self.methods.get_name(), method),
+            url: format!("rss_pipe://{}/{}", self.methods.get_name(), path),
             status_code: StatusCode::OK,
             body: content.clone().into(),
         };

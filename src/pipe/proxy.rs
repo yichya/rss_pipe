@@ -24,7 +24,7 @@ fn forward_uri<B>(forward_url: &str, req: &Request<B>) -> Result<Uri, InvalidUri
         None => forward_url.into(),
     };
 
-    Uri::from_str(forward_uri.as_str())
+    Uri::from_str(&forward_uri)
 }
 
 fn create_proxied_request<B>(forward_url: &str, mut request: Request<B>) -> Result<Request<B>, PipeError> {

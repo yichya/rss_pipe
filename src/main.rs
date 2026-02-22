@@ -11,15 +11,18 @@ mod fever;
 mod pipe;
 mod push;
 mod storage;
+mod valine;
 
 static ARGS: OnceLock<HashMap<String, String>> = OnceLock::new();
 static PIPE: OnceLock<pipe::Pipe> = OnceLock::new();
+static VALINE: OnceLock<valine::Valine> = OnceLock::new();
 
 async fn handle(
     db: &str,
     prefix: &str,
     fever_auth: &str,
     pipe: &pipe::Pipe,
+    valine: &valine::Valine,
     req: Request<Incoming>,
 ) -> Result<Response<Full<Bytes>>, common::PipeError> {
     let req_path = req.uri().path();
@@ -33,6 +36,12 @@ async fn handle(
         pipe.enqueue_https(format!("https://{path}"), req).await
     } else if let Some(path) = req_path.strip_prefix("/invoke/") {
         pipe.enqueue_invoke(path.to_owned(), req).await
+    } else if req_path.strip_prefix("/1.1/classes/Comment").is_some() {
+        valine.handle_comment(req).await
+    } else if req_path.strip_prefix("/1.1/cloudQuery").is_some() {
+        valine.handle_cloud_query(req).await
+    } else if req_path.strip_prefix("/1.1/classes/Counter").is_some() {
+        valine.handle_counter(req).await
     } else {
         common::not_found()
     }
@@ -43,12 +52,13 @@ async fn handle_wrapper(
     prefix: &str,
     fever_auth: &str,
     pipe: &pipe::Pipe,
+    valine: &valine::Valine,
     req: Request<Incoming>,
     remote_addr: SocketAddr,
 ) -> Result<Response<Full<Bytes>>, String> {
     let start_time = Instant::now();
     let req_info = format!("accepted {} {} {}", remote_addr, req.method(), req.uri());
-    let response = handle(db, prefix, fever_auth, pipe, req).await;
+    let response = handle(db, prefix, fever_auth, pipe, valine, req).await;
     match response {
         Ok(r) => {
             println!(
@@ -96,6 +106,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         Some(v) => v,
         None => "rss_pipe",
     };
+    let args_pipe = match m.get("--pipe") {
+        Some(v) => v,
+        None => "rss_pipe.py",
+    };
     let args_proxy = match m.get("--proxy") {
         Some(v) => v,
         None => "",
@@ -103,10 +117,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let args_prefix = match m.get("--prefix") {
         Some(v) => v,
         None => "https://example.com/",
-    };
-    let args_pipe = match m.get("--pipe") {
-        Some(v) => v,
-        None => "rss_pipe.py",
     };
 
     let addr: SocketAddr = args_bind.parse()?;
@@ -121,6 +131,14 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             args_bark.to_owned(),
             args_proxy.to_owned(),
             common::script::Script::new(args_pipe),
+        )
+    });
+
+    let valine_instance = VALINE.get_or_init(|| {
+        valine::Valine::new(
+            args_db.to_owned(),
+            args_auth.to_owned(), // share with fever
+            args_bark.to_owned(),
         )
     });
 
@@ -139,8 +157,17 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let listener = TcpListener::bind(addr).await?;
     loop {
         let (stream, remote_addr) = listener.accept().await?;
-        let service =
-            service_fn(move |req| handle_wrapper(args_db, args_path, args_auth, pipe_instance, req, remote_addr));
+        let service = service_fn(move |req| {
+            handle_wrapper(
+                args_db,
+                args_path,
+                args_auth,
+                pipe_instance,
+                valine_instance,
+                req,
+                remote_addr,
+            )
+        });
         let tokio_io = hyper_util::rt::tokio::TokioIo::new(stream);
         tokio::task::spawn(async move {
             if let Err(err) = Builder::new().serve_connection(tokio_io, service).await {

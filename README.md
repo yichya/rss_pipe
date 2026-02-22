@@ -7,12 +7,39 @@ A small middleware between RSS feed sources and RSS readers to:
 * Integrate with push services (currently only [Finb/Bark](https://github.com/Finb/Bark) is supported, more will be added later)
 * Integrate with reader apps (currently implemented a subset of Fever API; tested with [ReadKit](https://readkit.app/))
 
+## Integration
+
 Currently, updates are only triggered by external requests, so it is better to use this tool with RSS bots:
 
 * [RSS-to-Telegram-Bot](https://github.com/Rongronggg9/RSS-to-Telegram-Bot)
 * [flowerss bot](https://github.com/indes/flowerss-bot)
 
-Todo:
+As middleware this tool forwards requests to the original feed source by using URL:
+
+* `http://example.com/feed.xml` -> `http://172.17.0.1:5080/http/example.com/feed.xml`
+* `https://example.com/feed.xml` -> `http://172.17.0.1:5080/https/example.com/feed.xml`
+
+## Valine Server
+
+Since [LeanCloud is shutting down](https://console.leancloud.app/docs/sdk/announcements/sunset-announcement), this tool added the ability to work as a backend for [Valine](https://valine.js.org/).
+
+## Deployment
+
+This tool is still in early stage development, so currently manual deployment is required:
+
+* Create a SQLite database from `db.sql`
+* Run `cargo build --release` to get the binary file `target/release/rss_pipe`
+* Run `rss_pipe` with the following arguments (`--key=value`):
+  * `--db` SQLite database path
+  * `--auth` Authorization key for Fever and Valine; see logs in `stdout` for the correct value
+  * `--bark` Bark server URL for push notifications
+  * `--bind` Bind address for HTTP server (default: `172.17.0.1:5080`)
+  * `--path` Fever API endpoint path
+  * `--proxy` Proxy for fetching feeds (only for `https://` URLs, and only `socks5` is supported)
+
+## Todo
+
+Sorted by length of characters.
 
 * Redirect handling
 * Database migrations

@@ -38,9 +38,10 @@ pub fn get_feed_id_by_url(tx: &Transaction, url: &str) -> Option<u64> {
 
 pub fn get_all_feeds(tx: &Transaction) -> Option<Vec<(Feed, FeedUrl)>> {
     let get_all_feeds_statement = tx.prepare(
-        "with feeds as ( \
-        select feed.id, feed.title, feed.last_updated, max(feed_url.id) as feed_url_id from feed join feed_url on feed.id = feed_url.feed_id group by feed.id \
-    ) select feeds.id, feeds.title, unixepoch(feeds.last_updated), feed_url.id, feed_url.url from feeds join feed_url on feeds.feed_url_id = feed_url.id",
+        "with f as ( \
+            select feed.id, feed.title, feed.last_updated, max(feed_url.id) as feed_url_id \
+            from feed join feed_url on feed.id = feed_url.feed_id group by feed.id \
+        ) select f.id, f.title, unixepoch(f.last_updated), u.id, u.url from f join feed_url u on f.feed_url_id = u.id",
     );
 
     let all_feeds: Result<Vec<(Feed, FeedUrl)>, _> = get_all_feeds_statement
@@ -69,24 +70,23 @@ pub fn upsert_feed(tx: &Transaction, url: &str, title: &str) -> (u64, u64, bool)
         let last_updated = tx
             .query_row(
                 "update feed set title = ?1, last_updated = datetime() where id = ?2 returning unixepoch(last_updated)",
-                [title, feed_id.to_string().as_str()],
+                rusqlite::params![title, feed_id],
                 |row| row.get(0),
             )
             .unwrap_or(0);
         (feed_id, last_updated, false)
-    } else {
-        let feed_id = tx
-            .query_row("insert into feed (title) values (?1) returning id", [&title], |row| {
-                row.get(0)
-            })
-            .unwrap_or(0);
+    } else if let Ok(feed_id) = tx.query_row("insert into feed (title) values (?1) returning id", [&title], |row| {
+        row.get::<usize, u64>(0)
+    }) {
         let feed_url_id = tx
             .query_row(
                 "insert into feed_url (feed_id, url) values (?1, ?2) returning id",
-                [&feed_id.to_string(), url],
+                rusqlite::params![feed_id, url],
                 |row| row.get(0),
             )
             .unwrap_or(0);
         (feed_id, feed_url_id, true)
+    } else {
+        (0, 0, false)
     }
 }

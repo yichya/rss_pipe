@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::{Request, Response, body::Incoming};
 use rusqlite::Transaction;
 use serde::Serialize;
@@ -13,16 +13,7 @@ mod items;
 
 async fn parse_request_actions(req: Request<Incoming>) -> HashMap<String, String> {
     let query_string = req.uri().query().unwrap_or("").to_owned();
-    let body = match req.into_body().collect().await {
-        Ok(v) => String::from_utf8(v.to_bytes().to_vec()).unwrap_or_else(|e| {
-            println!("!! error converting body to string: {e}");
-            "".into()
-        }),
-        Err(e) => {
-            println!("!! error reading request body: {e}");
-            "".into()
-        }
-    };
+    let body = common::parse_request_body(req).await;
     common::get_request_params(&query_string, &body)
 }
 

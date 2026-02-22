@@ -1,7 +1,9 @@
 use rusqlite::{Connection, Transaction};
 
+pub mod blob;
 pub mod feeds;
 pub mod items;
+pub mod valine;
 
 pub fn transaction<T>(db: &str, callback: impl Fn(&Transaction) -> T) -> T {
     let mut conn = Connection::open(db).unwrap();
