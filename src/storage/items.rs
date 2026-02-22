@@ -1,5 +1,3 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 use rusqlite::Transaction;
 use serde::Serialize;
 
@@ -13,6 +11,7 @@ pub struct Item {
     pub url: String,
     pub is_saved: u8,
     pub is_read: u8,
+    pub counter: u64,
     pub created_on_time: u64,
 }
 
@@ -24,35 +23,19 @@ pub fn create_item(
     html: &str,
     url: &str,
     author: &str,
-    created_at: u64,
+    created_at: &str,
 ) -> (u64, bool) {
     if let Ok(existing_id) = tx.query_row(
         "select id from item where feed_id = ?1 and guid = ?2",
-        [&feed_id.to_string(), guid],
+        rusqlite::params![feed_id, guid],
         |row| row.get(0),
     ) {
         return (existing_id, false);
     }
-    let created_at_string = match created_at {
-        0 => SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::from_secs(0))
-            .as_secs()
-            .to_string(),
-        _ => created_at.to_string(),
-    };
     if let Ok(new_id) = tx.query_row(
         "insert into item (feed_id, guid, title, author, content, url, create_time) \
         values (?1, ?2, ?3, ?4, ?5, ?6, datetime(?7, 'unixepoch')) returning id",
-        [
-            feed_id.to_string(),
-            guid.to_string(),
-            title.to_string(),
-            author.to_string(),
-            html.to_string(),
-            url.to_string(),
-            created_at_string,
-        ],
+        rusqlite::params![feed_id, guid, title, author, html, url, created_at],
         |row| row.get(0),
     ) {
         return (new_id, true);
@@ -83,7 +66,7 @@ pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Option<
 
     let statement = format!(
         "select {} from item {} limit 50", // make cargo fmt happy again
-        "id, feed_id, title, author, url, content, is_saved, is_read, unixepoch(create_time)",
+        "id, feed_id, title, author, url, content, is_saved, is_read, counter, unixepoch(create_time)",
         if filter_op == "with_ids" {
             format!("where id in ({filter_arg})")
         } else if filter_op == "since_id" {
@@ -94,7 +77,7 @@ pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Option<
     );
 
     let result: Result<Vec<Item>, _> = tx
-        .prepare(statement.as_str())
+        .prepare(&statement)
         .ok()?
         .query_map([], |row| {
             Ok(Item {
@@ -106,7 +89,8 @@ pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Option<
                 html: row.get(5)?,
                 is_saved: row.get(6)?,
                 is_read: row.get(7)?,
-                created_on_time: row.get(8)?,
+                counter: row.get(8)?,
+                created_on_time: row.get(9)?,
             })
         })
         .ok()?

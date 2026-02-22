@@ -8,26 +8,31 @@ edition = "2024"
 [dependencies]
 base64 = "0"
 bytes = "1"
-errno = "=0.3.9"
 feed-rs = "2"
 http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-socks2 = { version = "0.9", features = ["hyper-tls"] }
 hyper-tls = "0.6"
-hyper-util = { version = "=0.1.15", features = ["http1"] }
-mio = "=1.0.3"
+hyper-util = { version = "0.1", features = ["http1"] }
 nanohtml2text = "0.2"
-pyo3 = "0.26"
-pyo3-ffi = "0.26"
+openssl = "0"
+pyo3 = "0.28"
+pyo3-ffi = "0.28"
 regex = "1"
-rusqlite = "0"
-schannel = "=0.1.23"
+rusqlite = "=0.37.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-tempfile = "=3.11.0"
-tokio = { version = "=1.46.1", features = ["macros", "net", "rt-multi-thread"] }
-uuid = "=1.12.1"
+tempfile = "=3.24.0"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+url = "2"
+uuid = "=1.20.0"
+
+[patch.crates-io]
+socket2 = {git = "https://github.com/hanna-kruppe/socket2", branch = "windows-sys-0.61"}
+
+[build-dependencies]
+flate2 = "1"
 
 [profile.release]
 codegen-units = 1

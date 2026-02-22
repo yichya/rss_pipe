@@ -1,3 +1,14 @@
+CREATE TABLE IF NOT EXISTS  "blob_storage"
+(
+    id          integer                            not null
+        constraint blob_storage_pk
+            primary key autoincrement,
+    item_id     integer                            not null,
+    reply_id    integer,
+    create_time datetime default current_timestamp not null,
+    data        blob                               not null,
+    metadata    text                               not null
+);
 CREATE TABLE IF NOT EXISTS "feed"
 (
     id           integer                            not null
@@ -28,7 +39,9 @@ CREATE TABLE IF NOT EXISTS "item"
     content     text                               not null,
     is_saved    integer  default 0                 not null,
     is_read     integer  default 0                 not null,
+    counter     integer  default 0                 not null,
     create_time datetime default CURRENT_TIMESTAMP not null,
+    update_time datetime default CURRENT_TIMESTAMP not null,
     constraint uniq_feed_id_guid
         unique (feed_id, guid)
 );

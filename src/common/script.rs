@@ -23,7 +23,7 @@ impl Script {
     }
 
     pub fn get_name(&self) -> &str {
-        self.name.as_str()
+        &self.name
     }
 
     pub fn new(file_name: &str) -> Self {
