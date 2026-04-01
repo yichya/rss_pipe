@@ -39,6 +39,7 @@ pub struct Metadata {
     link: Option<String>,
     mail: Option<String>,
     nick: Option<String>,
+    content_type: Option<String>,
 
     #[serde(rename = "QQAvatar")]
     avatar: Option<String>,
@@ -64,7 +65,7 @@ pub struct Comment {
     metadata: Metadata,
 }
 
-fn get_rids_from_cql_template(v: String) -> Vec<String> {
+fn get_rids_from_cql_template(v: &str) -> Vec<String> {
     let start = v.find("in (").map(|i| i + 4).unwrap_or(0);
     let end = v[start..].find(")").map(|i| i + start).unwrap_or(v.len());
     v[start..end]
@@ -90,7 +91,8 @@ fn to_comment(blob: &storage::blob::BlobStorage) -> Comment {
         link: None,
         mail: None,
         avatar: None,
-        nick: Some("Anonymous".to_string()),
+        content_type: None,
+        nick: Some("Anonymous".to_owned()),
     });
 
     Comment {
@@ -125,21 +127,23 @@ impl valine::Valine {
                 })
             })
             .map(async |object_id| {
-                push::bark::send_notification(
-                    &format!("New comment {}", url),
-                    "",
-                    data,
-                    "rss_pipe_valine",
-                    None, // todo: link
-                    None,
-                    &self.bark,
-                )
-                .await;
-                common::json_response(Bytes::from(format!(
+                if url != self.path {
+                    push::bark::send_notification(
+                        &format!("New comment {}", url),
+                        "",
+                        data,
+                        "rss_pipe_valine",
+                        None, // todo: link
+                        None,
+                        &self.bark,
+                    )
+                    .await;
+                }
+                common::json_response(&format!(
                     "{{\"objectId\": \"{}\", \"createdAt\": \"{}\"}}",
                     object_id,
                     valine::DEFAULT_DATETIME
-                )))
+                ))
             });
             match v {
                 Some(v) => v.await,
@@ -157,7 +161,7 @@ impl valine::Valine {
                     storage::valine::get_comment_count(tx, id) // make cargo fmt happy
                 })
             });
-            common::json_response(Bytes::from(format!("{{\"results\": [], \"count\": {}}}", count)))
+            common::json_response(&format!("{{\"results\": [], \"count\": {}}}", count))
         }
     }
 
@@ -171,7 +175,7 @@ impl valine::Valine {
         if url.is_empty() {
             common::not_found()
         } else if limit == 0 {
-            common::json_response(Bytes::from("{\"results\": [], \"count\": 0}"))
+            common::json_response("{\"results\": [], \"count\": 0}")
         } else {
             let comments: Vec<Comment> = storage::transaction(&self.db, |tx| {
                 storage::valine::find_item_id_by_url(tx, feed_id, url).map_or(vec![], |id| {
@@ -181,16 +185,16 @@ impl valine::Valine {
             .iter()
             .map(to_comment)
             .collect();
-            common::json_response(Bytes::from(format!(
+            common::json_response(&format!(
                 "{{\"results\": {}, \"count\": 0}}",
                 serde_json::to_string(&comments).unwrap_or("[]".to_owned())
-            )))
+            ))
         }
     }
 
     pub fn get_all_replies(&self, feed_id: u64, rids: &[String]) -> Result<Response<Full<Bytes>>, common::PipeError> {
         if rids.is_empty() {
-            common::json_response(Bytes::from("{\"results\": [], \"className\": \"Comment\"}"))
+            common::json_response("{\"results\": [], \"className\": \"Comment\"}")
         } else {
             let comments: Vec<Comment> = storage::transaction(&self.db, |tx| {
                 storage::valine::get_comment_by_reply_id(tx, feed_id, rids).unwrap_or_default()
@@ -198,10 +202,10 @@ impl valine::Valine {
             .iter()
             .map(to_comment)
             .collect();
-            common::json_response(Bytes::from(format!(
+            common::json_response(&format!(
                 "{{\"results\": {}, \"className\": \"Comment\"}}",
                 serde_json::to_string(&comments).unwrap_or("[]".to_owned())
-            )))
+            ))
         }
     }
 
@@ -209,11 +213,11 @@ impl valine::Valine {
         let method = req.method().to_owned();
         let feed_id = valine::get_feed_id(&self.auth, req.headers());
         if method == http::Method::OPTIONS {
-            common::json_response(Bytes::from("{}"))
+            common::json_response("{}")
         } else if let Some(id) = feed_id {
             let query = req.uri().query().unwrap_or("").to_owned();
             let query_parsed: HashMap<String, String> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
-            let count = query_parsed.get("count").unwrap_or(&"".to_owned()).to_owned();
+            let count = query_parsed.get("count").map_or("", |v| v.as_str());
             let body = common::parse_request_body(req).await;
             let url = valine::get_where_url(&query_parsed);
 
@@ -222,8 +226,8 @@ impl valine::Valine {
             } else if count == "1" {
                 self.get_comment_count(id, &url)
             } else {
-                let skip: u64 = query_parsed.get("skip").unwrap_or(&"".to_owned()).parse().unwrap_or(0);
-                let limit: u64 = query_parsed.get("limit").unwrap_or(&"".to_owned()).parse().unwrap_or(0);
+                let skip: u64 = query_parsed.get("skip").and_then(|v| v.parse().ok()).unwrap_or(0);
+                let limit: u64 = query_parsed.get("limit").and_then(|v| v.parse().ok()).unwrap_or(0);
                 self.get_comment_paged(id, &url, limit, skip)
             }
         } else {
@@ -235,11 +239,11 @@ impl valine::Valine {
         let method = req.method().to_owned();
         let feed_id = valine::get_feed_id(&self.auth, req.headers());
         if method == http::Method::OPTIONS {
-            common::json_response(Bytes::from("{}"))
+            common::json_response("{}")
         } else if let Some(id) = feed_id {
             let query = req.uri().query().unwrap_or("").to_owned();
             let query_parsed: HashMap<String, String> = form_urlencoded::parse(query.as_bytes()).into_owned().collect();
-            let cql = query_parsed.get("cql").unwrap_or(&"".to_owned()).to_owned();
+            let cql = query_parsed.get("cql").map(|v| v.as_str()).unwrap_or("");
             let rids = get_rids_from_cql_template(cql);
             self.get_all_replies(id, &rids)
         } else {

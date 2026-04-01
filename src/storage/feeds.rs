@@ -21,19 +21,8 @@ pub fn get_last_refreshed_time(tx: &Transaction) -> u64 {
 }
 
 pub fn get_feed_id_by_url(tx: &Transaction, url: &str) -> Option<u64> {
-    let mut stmt = tx
-        .prepare("SELECT id, feed_id, url from feed_url where url = ?1 limit 1")
-        .ok()?;
-    let feed_urls = stmt
-        .query_map([&url], |row| {
-            Ok(FeedUrl {
-                id: row.get(0)?,
-                feed_id: row.get(1)?,
-                url: row.get(2)?,
-            })
-        })
-        .ok()?;
-    feed_urls.flatten().next().map(|feed_url| feed_url.feed_id)
+    tx.query_row("SELECT feed_id from feed_url where url = ?1 ", [&url], |row| row.get(0))
+        .ok()
 }
 
 pub fn get_all_feeds(tx: &Transaction) -> Option<Vec<(Feed, FeedUrl)>> {
@@ -65,12 +54,12 @@ pub fn get_all_feeds(tx: &Transaction) -> Option<Vec<(Feed, FeedUrl)>> {
     all_feeds.ok()
 }
 
-pub fn upsert_feed(tx: &Transaction, url: &str, title: &str) -> (u64, u64, bool) {
+pub fn upsert_feed(tx: &Transaction, url: &str, title: Option<&str>) -> (u64, u64, bool) {
     if let Some(feed_id) = get_feed_id_by_url(tx, url) {
         let last_updated = tx
             .query_row(
-                "update feed set title = ?1, last_updated = datetime() where id = ?2 returning unixepoch(last_updated)",
-                rusqlite::params![title, feed_id],
+                "update feed set title = iif(?1 is null, title, ?2), last_updated = datetime() where id = ?3 returning unixepoch(last_updated)",
+                rusqlite::params![title, title, feed_id],
                 |row| row.get(0),
             )
             .unwrap_or(0);

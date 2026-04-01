@@ -21,9 +21,9 @@ pub fn get_all_feeds(tx: &Transaction) -> Vec<FeedFever> {
         .map(|(feed, feed_url)| FeedFever {
             id: feed.id,
             favicon_id: feed.id,
-            title: feed.title.clone(),
-            url: feed_url.url.clone(),
-            site_url: "".into(),
+            title: feed.title.to_owned(),
+            url: feed_url.url.to_owned(),
+            site_url: String::new(),
             is_spark: 0,
             last_updated_on_time: feed.last_updated,
         })

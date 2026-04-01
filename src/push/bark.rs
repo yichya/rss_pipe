@@ -59,7 +59,7 @@ pub async fn send_notification(
 ) {
     let extracted_content = extract_content::extract_content(item_title, content, 250);
     BarkRequest {
-        title: feed_title.into(),
+        title: feed_title.to_owned(),
         group: if group.is_empty() {
             "rss_pipe_rust".to_owned()
         } else {

@@ -28,9 +28,6 @@ tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 url = "2"
 uuid = "=1.20.0"
 
-[patch.crates-io]
-socket2 = {git = "https://github.com/hanna-kruppe/socket2", branch = "windows-sys-0.61"}
-
 [build-dependencies]
 flate2 = "1"
 

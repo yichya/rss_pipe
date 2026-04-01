@@ -18,7 +18,7 @@ async fn parse_request_actions(req: Request<Incoming>) -> HashMap<String, String
 }
 
 fn unauthorized() -> Result<Response<Full<Bytes>>, common::PipeError> {
-    common::json_response(Bytes::from("{\"api_version\": 3, \"auth\": 0}"))
+    common::json_response("{\"api_version\": 3, \"auth\": 0}")
 }
 
 fn return_with_base_response<T: Serialize>(
@@ -28,9 +28,9 @@ fn return_with_base_response<T: Serialize>(
     a: &str,
 ) -> Result<Response<Full<Bytes>>, common::PipeError> {
     let kv_part = if k.is_empty() {
-        "".into()
+        String::new()
     } else {
-        format!(", \"{}\": {}", k, serde_json::to_string(v).unwrap_or("null".into()))
+        format!(", \"{}\": {}", k, serde_json::to_string(v).unwrap_or("null".to_owned()))
     };
     let result = format!(
         "{{\"api_version\": 3, \"auth\": 1, \"last_refreshed_on_time\": {}{}{}}}",
@@ -38,7 +38,7 @@ fn return_with_base_response<T: Serialize>(
         kv_part,
         a
     );
-    common::json_response(Bytes::from(result))
+    common::json_response(&result)
 }
 
 pub async fn fever(db: &str, auth: &str, req: Request<Incoming>) -> Result<Response<Full<Bytes>>, common::PipeError> {
@@ -55,7 +55,7 @@ pub async fn fever(db: &str, auth: &str, req: Request<Incoming>) -> Result<Respo
                         tx,
                         "items",
                         &items::get_items(tx, &actions),
-                        items::get_total_items(tx).as_str(),
+                        &items::get_total_items(tx),
                     );
                 }
                 if actions.contains_key("unread_item_ids") {
@@ -78,7 +78,7 @@ pub async fn fever(db: &str, auth: &str, req: Request<Incoming>) -> Result<Respo
                 if let Some(mark) = actions.get("mark") {
                     if let Some(kind) = actions.get("as") {
                         if let Some(id) = actions.get("id") {
-                            if mark.as_str() == "item" {
+                            if mark == "item" {
                                 items::mark(tx, id, kind)
                             }
                         }

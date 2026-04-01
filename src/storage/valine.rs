@@ -21,6 +21,7 @@ pub fn find_item_id_by_url(tx: &Transaction, feed_id: u64, url: &str) -> Option<
     .ok()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn refresh_existing_item(
     tx: &Transaction,
     feed_id: u64,
@@ -29,13 +30,13 @@ pub fn refresh_existing_item(
     html: &str,
     url: &str,
     author: &str,
-    created_at_str: &str,
+    created_at: u64,
 ) -> (u64, bool) {
     let existing_id = tx.query_row(
         "update item set counter = 0, update_time = current_timestamp, \
         guid = ?1, title = ?2, author = ?3, content = ?4, create_time = datetime(?5, 'unixepoch') \
         where feed_id = ?6 and url = ?7 and title = '' and author = '' returning id",
-        rusqlite::params![guid, title, author, html, created_at_str, feed_id, url],
+        rusqlite::params![guid, title, author, html, created_at, feed_id, url],
         |row| row.get(0),
     );
     match existing_id {

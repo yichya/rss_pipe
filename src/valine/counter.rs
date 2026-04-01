@@ -34,8 +34,8 @@ fn to_counter(i: &storage::items::Item) -> Counter {
         url: Some(path.to_owned()),
         xid: Some(path.to_owned()),
         title: Some(i.title.to_owned()),
-        created_at: Some(valine::DEFAULT_DATETIME.into()),
-        updated_at: Some(valine::DEFAULT_DATETIME.into()),
+        created_at: Some(valine::DEFAULT_DATETIME.to_owned()),
+        updated_at: Some(valine::DEFAULT_DATETIME.to_owned()),
     }
 }
 
@@ -45,25 +45,24 @@ impl valine::Valine {
             common::not_found()
         } else {
             let counter_data: Counter = serde_json::from_str(body)?;
-            let path = counter_data.url.unwrap_or("".to_owned());
-            let (id, _) = storage::transaction(&self.db, |tx| {
-                let query = storage::valine::get_prefix(tx, feed_id);
-                if let Some(prefix) = query {
-                    let url = format!("{}{}", prefix, path);
-                    let (new_item_id, created) = storage::items::create_item(
-                        tx, feed_id, &url, "", "", &url, "", "0", // use title as a filter for fever
-                    );
-                    storage::valine::increment_item_counter(tx, new_item_id);
-                    (new_item_id, created)
-                } else {
-                    (0, false)
-                }
-            });
-            common::json_response(Bytes::from(format!(
-                "{{\"objectId\": \"{}\", \"createdAt\": \"{}\"}}",
-                id,
-                valine::DEFAULT_DATETIME
-            )))
+            let path = counter_data.url.unwrap_or_default();
+            if path.is_empty() {
+                common::internal_server_error()
+            } else {
+                let id = storage::transaction(&self.db, |tx| {
+                    storage::valine::get_prefix(tx, feed_id).map_or(0, |prefix| {
+                        let url = format!("{}{}", prefix, path);
+                        let (new_item_id, _) = storage::items::create_item(tx, feed_id, &url, "", "", &url, "", 0);
+                        storage::valine::increment_item_counter(tx, new_item_id);
+                        new_item_id
+                    })
+                });
+                common::json_response(&format!(
+                    "{{\"objectId\": \"{}\", \"createdAt\": \"{}\"}}",
+                    id,
+                    valine::DEFAULT_DATETIME
+                ))
+            }
         }
     }
     pub fn get_counter(&self, feed_id: u64, query: &str) -> Result<Response<Full<Bytes>>, common::PipeError> {
@@ -80,10 +79,10 @@ impl valine::Valine {
             .iter()
             .map(to_counter)
             .collect();
-            common::json_response(Bytes::from(format!(
+            common::json_response(&format!(
                 "{{\"results\": {}}}",
-                serde_json::to_string(&counters).unwrap_or("[]".into())
-            )))
+                serde_json::to_string(&counters).unwrap_or("[]".to_owned())
+            ))
         }
     }
 
@@ -91,11 +90,11 @@ impl valine::Valine {
         match id.parse() {
             Ok(v) => storage::transaction(&self.db, |tx| {
                 storage::valine::increment_item_counter(tx, v);
-                common::json_response(Bytes::from(format!(
+                common::json_response(&format!(
                     "{{\"objectId\": \"{}\", \"updatedAt\": \"{}\"}}",
                     id,
                     valine::DEFAULT_DATETIME,
-                )))
+                ))
             }),
             Err(_) => common::not_found(),
         }
@@ -105,7 +104,7 @@ impl valine::Valine {
         let method = req.method().to_owned();
         let feed_id = valine::get_feed_id(&self.auth, req.headers());
         if method == http::Method::OPTIONS {
-            common::json_response(Bytes::from("{}"))
+            common::json_response("{}")
         } else if let Some(id) = feed_id {
             let path = req.uri().path().to_owned();
             let query = req.uri().query().unwrap_or("").to_owned();
