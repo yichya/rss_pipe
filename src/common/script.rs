@@ -2,7 +2,7 @@ use std::ffi::CString;
 use std::fs::read_to_string;
 use std::path::Path;
 
-use pyo3::prelude::{Py, PyAny, PyModule, PyTracebackMethods};
+use pyo3::prelude::{FromPyObject, Py, PyAny, PyModule, PyTracebackMethods, Python};
 use pyo3_ffi::c_str;
 
 pub struct Script {
@@ -13,13 +13,13 @@ pub struct Script {
 impl Script {
     pub fn empty() -> Self {
         Self {
-            name: "".to_owned(),
+            name: String::new(),
             module: None,
         }
     }
 
     pub fn initialize() {
-        pyo3::Python::initialize();
+        Python::initialize();
     }
 
     pub fn get_name(&self) -> &str {
@@ -31,7 +31,7 @@ impl Script {
         Self {
             name: file_name.to_owned(),
             module: read_to_string(Path::new(file_name)).ok().and_then(|script| {
-                pyo3::Python::attach(|py| -> Option<Py<PyModule>> {
+                Python::attach(|py| -> Option<Py<PyModule>> {
                     PyModule::from_code(
                         py,
                         CString::new(script).ok()?.as_c_str(),
@@ -45,10 +45,19 @@ impl Script {
         }
     }
 
-    pub fn evaluate(&self, b: &str, c: &str, return_traceback: bool) -> Option<String> {
+    pub fn getattr<T: for<'py> FromPyObject<'py, 'py>>(&self, v: &str) -> Option<T> {
         self.module.as_ref().and_then(|module| {
-            pyo3::Python::attach(|py| -> Option<String> {
-                let app: Py<PyAny> = module.getattr(py, b).ok()?; // Great API design in pyo3!
+            Python::attach(|py| -> Option<T> {
+                let obj: Py<PyAny> = module.getattr(py, v).ok()?;
+                obj.extract(py).ok()
+            })
+        })
+    }
+
+    pub fn evaluate(&self, a: &str, b: &str, c: &str, return_traceback: bool) -> Option<String> {
+        self.module.as_ref().and_then(|module| {
+            Python::attach(|py| -> Option<String> {
+                let app: Py<PyAny> = module.getattr(py, format!("{}_{}", a, b)).ok()?; // Great API design in pyo3!
                 match app.call1(py, (c,)) {
                     Ok(v) => Some(v.to_string()),
                     Err(e) => {

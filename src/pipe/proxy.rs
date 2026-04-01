@@ -20,11 +20,11 @@ enum FetchRequest {
 
 fn forward_uri<B>(forward_url: &str, req: &Request<B>) -> Result<Uri, InvalidUri> {
     let forward_uri = match req.uri().query() {
-        Some(query) => format!("{forward_url}?{query}"),
-        None => forward_url.into(),
+        Some(query) => &format!("{forward_url}?{query}"),
+        None => forward_url,
     };
 
-    Uri::from_str(&forward_uri)
+    Uri::from_str(forward_uri)
 }
 
 fn create_proxied_request<B>(forward_url: &str, mut request: Request<B>) -> Result<Request<B>, PipeError> {
@@ -136,7 +136,7 @@ pub async fn http_call(forward_uri: &str, request: Request<Incoming>) -> Result<
 pub fn handle_error(error: String) -> Result<Response<Full<Bytes>>, PipeError> {
     match Response::builder()
         .status(StatusCode::BAD_GATEWAY)
-        .body(Full::new(Bytes::from(error)))
+        .body(Full::from(error))
     {
         Ok(v) => Ok(v),
         Err(e) => Err(e.into()),

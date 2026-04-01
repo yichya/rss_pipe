@@ -11,9 +11,10 @@ mod counter;
 const DEFAULT_DATETIME: &str = "2000-01-01T00:00:00.000Z";
 
 pub struct Valine {
-    db: String,
-    auth: String,
     bark: String,
+    path: String,
+    pub db: String,
+    pub auth: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -22,11 +23,9 @@ struct WherePath {
 }
 
 pub fn get_where_url(query_parsed: &HashMap<String, String>) -> String {
-    let condition = query_parsed.get("where").unwrap_or(&"".to_owned()).to_owned();
-    let condition_parsed: Option<WherePath> = serde_json::from_str(&condition).ok();
-    condition_parsed
-        .map(|v| v.url.unwrap_or("".to_owned()))
-        .unwrap_or("".to_owned())
+    let condition = query_parsed.get("where").map_or("", |v| v.as_str());
+    let condition_parsed: Option<WherePath> = serde_json::from_str(condition).ok();
+    condition_parsed.and_then(|v| v.url).unwrap_or_default()
 }
 
 pub fn md5_base64(input: &str) -> Option<String> {
@@ -48,8 +47,12 @@ pub fn get_feed_id(auth: &str, headers: &HeaderMap<HeaderValue>) -> Option<u64> 
 }
 
 impl Valine {
-    pub fn new(db: String, auth: String, bark: String) -> Self {
-        Self { db, auth, bark }
+    pub fn new(db: &str, auth: &str, bark: &str, path: &str) -> Self {
+        Self {
+            db: db.to_owned(),
+            auth: auth.to_owned(),
+            bark: bark.to_owned(),
+            path: format!("/{}/", path),
+        }
     }
-    // todo: serve static files here
 }

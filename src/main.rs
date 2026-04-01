@@ -8,57 +8,61 @@ use tokio::net::TcpListener;
 
 mod common;
 mod fever;
+mod metrics;
 mod pipe;
 mod push;
 mod storage;
 mod valine;
 
 static ARGS: OnceLock<HashMap<String, String>> = OnceLock::new();
-static PIPE: OnceLock<pipe::Pipe> = OnceLock::new();
+static METRICS: OnceLock<metrics::Metrics> = OnceLock::new();
 static VALINE: OnceLock<valine::Valine> = OnceLock::new();
+static PIPE: OnceLock<pipe::Pipe> = OnceLock::new();
 
 async fn handle(
-    db: &str,
-    prefix: &str,
-    fever_auth: &str,
+    path: &str,
     pipe: &pipe::Pipe,
     valine: &valine::Valine,
+    metrics: &metrics::Metrics,
     req: Request<Incoming>,
 ) -> Result<Response<Full<Bytes>>, common::PipeError> {
-    let req_path = req.uri().path();
+    let db = &valine.db;
+    let fever_auth = &valine.auth;
+    let req_path = req.uri().path().to_owned();
     if req_path == "/metrics" {
-        pipe::metrics(db).await
-    } else if req_path.starts_with(format!("/{prefix}/fever").as_str()) {
-        fever::fever(db, fever_auth, req).await
-    } else if let Some(path) = req_path.strip_prefix("/http/") {
-        pipe.enqueue_http(format!("http://{path}"), req).await
-    } else if let Some(path) = req_path.strip_prefix("/https/") {
-        pipe.enqueue_https(format!("https://{path}"), req).await
-    } else if let Some(path) = req_path.strip_prefix("/invoke/") {
-        pipe.enqueue_invoke(path.to_owned(), req).await
-    } else if req_path.strip_prefix("/1.1/classes/Comment").is_some() {
+        metrics.handle_metrics().await
+    } else if req_path.starts_with("/1.1/classes/Comment") {
         valine.handle_comment(req).await
-    } else if req_path.strip_prefix("/1.1/cloudQuery").is_some() {
+    } else if req_path.starts_with("/1.1/cloudQuery") {
         valine.handle_cloud_query(req).await
-    } else if req_path.strip_prefix("/1.1/classes/Counter").is_some() {
+    } else if req_path.starts_with("/1.1/classes/Counter") {
         valine.handle_counter(req).await
+    } else if req_path.starts_with(&format!("/{path}/fever")) {
+        fever::fever(db, fever_auth, req).await
+    } else if req_path.starts_with(&format!("/{path}/statistics/")) {
+        metrics.handle_statistics(req).await
+    } else if let Some(feed) = req_path.strip_prefix("/http/") {
+        pipe.enqueue_http(&format!("http://{feed}"), req).await
+    } else if let Some(feed) = req_path.strip_prefix("/https/") {
+        pipe.enqueue_https(&format!("https://{feed}"), req).await
+    } else if let Some(feed) = req_path.strip_prefix("/invoke/") {
+        pipe.enqueue_invoke(feed, req).await
     } else {
         common::not_found()
     }
 }
 
 async fn handle_wrapper(
-    db: &str,
-    prefix: &str,
-    fever_auth: &str,
+    path: &str,
     pipe: &pipe::Pipe,
     valine: &valine::Valine,
-    req: Request<Incoming>,
+    metrics: &metrics::Metrics,
     remote_addr: SocketAddr,
+    req: Request<Incoming>,
 ) -> Result<Response<Full<Bytes>>, String> {
     let start_time = Instant::now();
     let req_info = format!("accepted {} {} {}", remote_addr, req.method(), req.uri());
-    let response = handle(db, prefix, fever_auth, pipe, valine, req).await;
+    let response = handle(path, pipe, valine, metrics, req).await;
     match response {
         Ok(r) => {
             println!(
@@ -80,7 +84,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             .map(|x| {
                 x.split_once("=")
                     .map(|(x, y)| (x.to_owned(), y.to_owned()))
-                    .unwrap_or(("".into(), "".into()))
+                    .unwrap_or_else(|| (String::new(), String::new()))
             })
             .filter(|(x, y)| !x.is_empty() && !y.is_empty())
             .collect()
@@ -125,22 +129,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     common::script::Script::initialize();
 
-    let pipe_instance = PIPE.get_or_init(|| {
-        pipe::Pipe::new(
-            args_db.to_owned(),
-            args_bark.to_owned(),
-            args_proxy.to_owned(),
-            common::script::Script::new(args_pipe),
-        )
-    });
-
-    let valine_instance = VALINE.get_or_init(|| {
-        valine::Valine::new(
-            args_db.to_owned(),
-            args_auth.to_owned(), // share with fever
-            args_bark.to_owned(),
-        )
-    });
+    let pipe_script = common::script::Script::new(args_pipe);
+    let statistics: Option<Vec<String>> = pipe_script.getattr("statistics");
+    let metrics_instance = METRICS.get_or_init(|| metrics::Metrics::new(args_db, statistics));
+    let pipe_instance = PIPE.get_or_init(|| pipe::Pipe::new(args_db, args_bark, args_proxy, pipe_script));
+    let valine_instance = VALINE.get_or_init(|| valine::Valine::new(args_db, args_auth, args_bark, args_path));
 
     println!(
         "Running with args (set with --key=value):\n \
@@ -159,13 +152,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         let (stream, remote_addr) = listener.accept().await?;
         let service = service_fn(move |req| {
             handle_wrapper(
-                args_db,
                 args_path,
-                args_auth,
                 pipe_instance,
                 valine_instance,
-                req,
+                metrics_instance,
                 remote_addr,
+                req,
             )
         });
         let tokio_io = hyper_util::rt::tokio::TokioIo::new(stream);

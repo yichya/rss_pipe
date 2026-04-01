@@ -78,11 +78,11 @@ pub async fn parse_request_body(req: Request<Incoming>) -> String {
     match req.into_body().collect().await {
         Ok(v) => String::from_utf8(v.to_bytes().to_vec()).unwrap_or_else(|e| {
             println!("!! error converting body to string: {e}");
-            "".into()
+            String::new()
         }),
         Err(e) => {
             println!("!! error reading request body: {e}");
-            "".into()
+            String::new()
         }
     }
 }
@@ -101,27 +101,27 @@ pub fn get_request_params(query: &str, body: &str) -> HashMap<String, String> {
         .collect()
 }
 
-pub fn json_response(v: Bytes) -> Result<Response<Full<Bytes>>, PipeError> {
+pub fn json_response(v: &str) -> Result<Response<Full<Bytes>>, PipeError> {
     Response::builder()
         .status(StatusCode::OK)
         .header(http::header::CONTENT_TYPE, "application/json")
         .header(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
         .header(http::header::ACCESS_CONTROL_ALLOW_HEADERS, "*")
         .header(http::header::ACCESS_CONTROL_ALLOW_METHODS, "*")
-        .body(Full::new(v))
+        .body(Full::from(v.to_owned()))
         .map_err(|e| e.into())
 }
 
 pub fn not_found() -> Result<Response<Full<Bytes>>, PipeError> {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
-        .body(Full::new(Bytes::from("not found")))
+        .body(Full::from("not found"))
         .map_err(|e| e.into())
 }
 
 pub fn internal_server_error() -> Result<Response<Full<Bytes>>, PipeError> {
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
-        .body(Full::new(Bytes::from("internal server error")))
+        .body(Full::from("internal server error"))
         .map_err(|e| e.into())
 }

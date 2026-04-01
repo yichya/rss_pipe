@@ -15,6 +15,7 @@ pub struct Item {
     pub created_on_time: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_item(
     tx: &Transaction,
     feed_id: u64,
@@ -23,7 +24,7 @@ pub fn create_item(
     html: &str,
     url: &str,
     author: &str,
-    created_at: &str,
+    created_at: u64,
 ) -> (u64, bool) {
     if let Ok(existing_id) = tx.query_row(
         "select id from item where feed_id = ?1 and guid = ?2",
@@ -72,7 +73,7 @@ pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Option<
         } else if filter_op == "since_id" {
             format!("where id > {filter_arg}")
         } else {
-            "".into() // todo: check if everything should be pulled here
+            String::new() // todo: check if everything should be pulled here
         }
     );
 
@@ -99,11 +100,9 @@ pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Option<
 }
 
 pub fn get_total_items(tx: &Transaction, extra_filter: &str) -> u64 {
-    tx.query_row(
-        format!("select count(*) from item {extra_filter}").as_str(),
-        [],
-        |row| row.get(0),
-    )
+    tx.query_row(&format!("select count(*) from item {extra_filter}"), [], |row| {
+        row.get(0)
+    })
     .unwrap_or(0)
 }
 

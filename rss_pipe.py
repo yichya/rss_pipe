@@ -2,6 +2,11 @@
 import datetime
 import json
 
+statistics = [
+    "select id, item_id, reply_id, data, datetime(create_time, '+8 hours') from blob_storage where item_id > 0",
+    "select url, counter, datetime(update_time, '+8 hours') from item where counter > 0 order by update_time desc"
+]
+
 
 def from_grafana_alert_item(v):
     return f"""<entry>

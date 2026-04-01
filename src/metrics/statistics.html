@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Statistics #{INDEX}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 75%;
+            margin: 20px;
+            background-color: #121212;
+            color: #e0e0e0;
+        }
+
+        h1 {
+            color: #ffffff;
+        }
+
+        .sql-query {
+            background-color: #1e1e1e;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            margin-bottom: 20px;
+            color: #b0b0b0;
+            border: 1px solid #333;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            table-layout: auto;
+            background-color: #1e1e1e;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+            color: #e0e0e0;
+            font-family: monospace;
+        }
+
+        th, td {
+            border: 1px solid #444;
+            padding: 6px;
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        td.ellipsis {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 0;
+        }
+
+        th {
+            background-color: #2e7d32;
+            color: #ffffff;
+            position: relative;
+        }
+
+        th:hover {
+            background-color: #1b5e20;
+        }
+
+        tr:nth-child(even) {
+            background-color: #252525;
+        }
+
+        tr:hover {
+            background-color: #333;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        .sort-indicator {
+            margin-left: 5px;
+            font-size: 10px;
+            color: #b0b0b0;
+        }
+
+        .filter-dropdown {
+            display: none;
+            position: absolute;
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 8px;
+            z-index: 100;
+            max-height: 300px;
+            overflow-y: auto;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+            white-space: nowrap;
+        }
+
+        .filter-dropdown.show {
+            display: block;
+        }
+
+        .filter-dropdown label {
+            display: block;
+            padding: 4px 8px;
+            cursor: pointer;
+            color: #e0e0e0;
+            white-space: nowrap;
+        }
+
+        .filter-dropdown label:hover {
+            background-color: #3a3a3a;
+        }
+
+        .filter-dropdown input[type="checkbox"] {
+            margin-right: 8px;
+        }
+
+        .filter-actions {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #444;
+        }
+
+        .filter-actions button {
+            background-color: #2e7d32;
+            color: white;
+            border: none;
+            padding: 4px 12px;
+            margin-right: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .filter-actions button:hover {
+            background-color: #1b5e20;
+        }
+
+        .sort-actions {
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #444;
+        }
+
+        .sort-actions button {
+            background-color: #444;
+            color: white;
+            border: none;
+            padding: 4px 12px;
+            margin-right: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .sort-actions button:hover {
+            background-color: #555;
+        }
+
+        .sort-actions button.active {
+            background-color: #2e7d32;
+        }
+
+        th {
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+<h1>Statistics #{INDEX}</h1>
+<div class="sql-query">{SQL}</div>
+<table id="dataTable">
+    <thead>
+    <tr>{HEADERS}</tr>
+    </thead>
+    <tbody>{ROWS}</tbody>
+</table>
+<script>
+    let sortDirection = {};
+    let activeFilters = {};
+    let originalRows = null;
+
+    function getOriginalRows() {
+        if (!originalRows) {
+            const tbody = document.getElementById("dataTable").getElementsByTagName("tbody")[0];
+            originalRows = Array.from(tbody.getElementsByTagName("tr"));
+        }
+        return originalRows;
+    }
+
+    function toggleFilter(columnIndex) {
+        const table = document.getElementById("dataTable");
+        const th = table.getElementsByTagName("th")[columnIndex];
+        const dropdown = th.querySelector(".filter-dropdown");
+
+        document.querySelectorAll(".filter-dropdown.show").forEach(d => {
+            if (d !== dropdown) d.classList.remove("show");
+        });
+
+        if (dropdown) {
+            dropdown.classList.toggle("show");
+        }
+    }
+
+    function populateFilter(columnIndex) {
+        const rows = getOriginalRows();
+        const values = new Set();
+
+        rows.forEach(row => {
+            const cell = row.getElementsByTagName("td")[columnIndex];
+            if (cell) {
+                values.add(cell.textContent.trim());
+            }
+        });
+
+        const table = document.getElementById("dataTable");
+        const th = table.getElementsByTagName("th")[columnIndex];
+        let dropdown = th.querySelector(".filter-dropdown");
+
+        if (!dropdown) {
+            dropdown = document.createElement("div");
+            dropdown.className = "filter-dropdown";
+            dropdown.onclick = function (e) {
+                e.stopPropagation();
+            };
+            th.appendChild(dropdown);
+        }
+
+        const sortedValues = Array.from(values).sort((a, b) => {
+            const aNum = parseFloat(a);
+            const bNum = parseFloat(b);
+            if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+            return a.localeCompare(b);
+        });
+
+        const currentFilter = activeFilters[columnIndex] || new Set(sortedValues);
+        const currentSort = sortDirection[columnIndex];
+
+        dropdown.innerHTML =
+            `<div class="sort-actions">
+                <button onclick="sortTable(${columnIndex}, 'asc')" class="${currentSort === 'asc' ? 'active' : ''}">↑ Asc</button>
+                <button onclick="sortTable(${columnIndex}, 'desc')" class="${currentSort === 'desc' ? 'active' : ''}">↓ Desc</button>
+            </div>` +
+            sortedValues.map(value =>
+                `<label><input type="checkbox" value="${escapeHtml(value)}" ${currentFilter.has(value) ? 'checked' : ''}>${escapeHtml(value)}</label>`
+            ).join('') +
+            `<div class="filter-actions">
+                <button onclick="applyFilter(${columnIndex})">OK</button>
+                <button onclick="toggleAll(${columnIndex})">Toggle</button>
+            </div>`;
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function toggleAll(columnIndex) {
+        const table = document.getElementById("dataTable");
+        const th = table.getElementsByTagName("th")[columnIndex];
+        const checkboxes = th.querySelectorAll("input[type='checkbox']");
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+        checkboxes.forEach(cb => cb.checked = !allChecked);
+    }
+
+    function applyFilter(columnIndex) {
+        const table = document.getElementById("dataTable");
+        const th = table.getElementsByTagName("th")[columnIndex];
+        const checkboxes = th.querySelectorAll("input[type='checkbox']:checked");
+
+        const selectedValues = new Set();
+        checkboxes.forEach(cb => selectedValues.add(cb.value));
+
+        activeFilters[columnIndex] = selectedValues;
+
+        const dropdown = th.querySelector(".filter-dropdown");
+        if (dropdown) dropdown.classList.remove("show");
+
+        applyAllFilters();
+    }
+
+    function applyAllFilters() {
+        const rows = getOriginalRows();
+
+        rows.forEach(row => {
+            let visible = true;
+
+            for (const [colIndex, values] of Object.entries(activeFilters)) {
+                const cell = row.getElementsByTagName("td")[parseInt(colIndex)];
+                if (cell && !values.has(cell.textContent.trim())) {
+                    visible = false;
+                    break;
+                }
+            }
+
+            row.style.display = visible ? "" : "none";
+        });
+    }
+
+    function initFilters() {
+        const table = document.getElementById("dataTable");
+        const headers = table.getElementsByTagName("th");
+
+        for (let i = 0; i < headers.length; i++) {
+            populateFilter(i);
+        }
+    }
+
+    function sortTable(columnIndex, direction) {
+        const table = document.getElementById("dataTable");
+        const tbody = table.getElementsByTagName("tbody")[0];
+        const rows = Array.from(tbody.getElementsByTagName("tr"));
+
+        sortDirection[columnIndex] = direction;
+
+        rows.sort((a, b) => {
+            const aValue = a.getElementsByTagName("td")[columnIndex].textContent.trim();
+            const bValue = b.getElementsByTagName("td")[columnIndex].textContent.trim();
+
+            const aNum = parseFloat(aValue);
+            const bNum = parseFloat(bValue);
+
+            let comparison;
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+                comparison = aNum - bNum;
+            } else {
+                comparison = aValue.localeCompare(bValue);
+            }
+
+            return direction === 'asc' ? comparison : -comparison;
+        });
+
+        rows.forEach(row => tbody.appendChild(row));
+
+        const indicator = table.getElementsByTagName("th")[columnIndex].querySelector(".sort-indicator");
+        if (indicator) {
+            indicator.textContent = direction === 'asc' ? '▲' : '▼';
+        }
+
+        populateFilter(columnIndex);
+    }
+
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('th')) {
+            document.querySelectorAll(".filter-dropdown.show").forEach(d => d.classList.remove("show"));
+        }
+    });
+
+    window.addEventListener('DOMContentLoaded', function () {
+        const table = document.getElementById('dataTable');
+        if (!table) return;
+
+        const ths = table.querySelectorAll('thead th');
+        const rows = table.querySelectorAll('tbody tr');
+        if (ths.length === 0 || rows.length === 0) return;
+
+        // Identify which columns have ellipsis cells
+        const ellipsisCols = new Set();
+        const firstRowCells = rows[0].querySelectorAll('td');
+        firstRowCells.forEach((td, i) => {
+            if (td.classList.contains('ellipsis')) {
+                ellipsisCols.add(i);
+            }
+        });
+
+        table.style.width = 'auto';
+        table.style.tableLayout = 'auto';
+
+        // Measure the natural (content-based) width of each non-ellipsis column
+        const colWidths = [];
+        ths.forEach((th, i) => {
+            if (ellipsisCols.has(i)) {
+                colWidths.push(null);
+            } else {
+                let maxW = th.offsetWidth;
+                rows.forEach(row => {
+                    const td = row.querySelectorAll('td')[i];
+                    if (td) maxW = Math.max(maxW, td.offsetWidth);
+                });
+                colWidths.push(maxW);
+            }
+        });
+
+        // Step 2: Switch to fixed layout at full width, and lock non-ellipsis columns
+        table.style.width = '100%';
+        table.style.tableLayout = 'fixed';
+
+        ths.forEach((th, i) => {
+            if (colWidths[i] !== null) {
+                th.style.width = colWidths[i] + 'px';
+            }
+            // ellipsis columns: no explicit width → they share remaining space
+        });
+
+        initFilters();
+    });
+</script>
+</body>
+</html>
