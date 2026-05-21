@@ -1,9 +1,9 @@
-CREATE TABLE IF NOT EXISTS  "blob_storage"
+CREATE TABLE IF NOT EXISTS "blob_storage"
 (
     id          integer                            not null
         constraint blob_storage_pk
             primary key autoincrement,
-    item_id     integer                            not null,
+    item_id     integer,
     reply_id    integer,
     create_time datetime default current_timestamp not null,
     data        blob                               not null,
@@ -44,4 +44,12 @@ CREATE TABLE IF NOT EXISTS "item"
     update_time datetime default CURRENT_TIMESTAMP not null,
     constraint uniq_feed_id_guid
         unique (feed_id, guid)
+);
+CREATE TABLE IF NOT EXISTS "redis_storage"
+(
+    db        integer not null,
+    key       TEXT    not null,
+    value     TEXT    not null,
+    expire_at INTEGER,
+    primary key (db, key)
 );

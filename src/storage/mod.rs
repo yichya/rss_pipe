@@ -3,6 +3,7 @@ use rusqlite::{Connection, Transaction, fallible_iterator::FallibleIterator, typ
 pub mod blob;
 pub mod feeds;
 pub mod items;
+pub mod redis;
 pub mod valine;
 
 #[derive(Debug)]

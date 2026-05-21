@@ -54,6 +54,48 @@ impl Script {
         })
     }
 
+    pub fn call_hook(
+        &self,
+        func_name: &str,
+        args: (&str, &str, Option<&str>, Option<i64>),
+    ) -> Option<(String, String, Option<String>, Option<i64>)> {
+        self.module.as_ref().and_then(|module| {
+            Python::attach(|py| -> Option<(String, String, Option<String>, Option<i64>)> {
+                let func: Py<PyAny> = match module.getattr(py, func_name) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        println!("[Redis Hook] Failed to get function '{}': {}", func_name, e);
+                        return None;
+                    }
+                };
+                let (key, value, ttl_type, ttl_value) = args;
+                let result = match func.call1(py, (key, value, ttl_type, ttl_value)) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        println!("[Redis Hook] Failed to call function '{}': {}", func_name, e);
+                        return None;
+                    }
+                };
+                let tuple: (&str, &str, Option<&str>, Option<i64>) = match result.extract(py) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        println!(
+                            "[Redis Hook] Failed to extract return value from '{}': {}",
+                            func_name, e
+                        );
+                        return None;
+                    }
+                };
+                Some((
+                    tuple.0.to_string(),
+                    tuple.1.to_string(),
+                    tuple.2.map(|s| s.to_string()),
+                    tuple.3,
+                ))
+            })
+        })
+    }
+
     pub fn evaluate(&self, a: &str, b: &str, c: &str, return_traceback: bool) -> Option<String> {
         self.module.as_ref().and_then(|module| {
             Python::attach(|py| -> Option<String> {
