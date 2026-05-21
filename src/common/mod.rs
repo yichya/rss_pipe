@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::string::FromUtf8Error;
+use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use http::header::InvalidHeaderValue;
@@ -8,9 +10,52 @@ use http::{Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper_socks2::TlsError;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::net::TcpStream;
 
 pub mod extract_content;
 pub mod script;
+
+/// 包装 TcpStream，在读取时先返回一个前缀字节
+pub struct PrefixedStream {
+    prefix: Option<u8>,
+    inner: TcpStream,
+}
+
+impl PrefixedStream {
+    pub fn new(prefix: u8, inner: TcpStream) -> Self {
+        Self {
+            prefix: Some(prefix),
+            inner,
+        }
+    }
+}
+
+impl AsyncRead for PrefixedStream {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        if let Some(byte) = self.prefix.take() {
+            if buf.remaining() > 0 {
+                buf.put_slice(&[byte]);
+                return Poll::Ready(Ok(()));
+            }
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for PrefixedStream {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
 
 #[derive(Debug)]
 #[allow(dead_code)]

@@ -4,6 +4,7 @@ use std::{collections::HashMap, error::Error, net::SocketAddr, sync::OnceLock, t
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{Request, Response, body::Incoming, server::conn::http1::Builder, service::service_fn};
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 mod common;
@@ -11,6 +12,7 @@ mod fever;
 mod metrics;
 mod pipe;
 mod push;
+mod redis;
 mod storage;
 mod valine;
 
@@ -29,9 +31,7 @@ async fn handle(
     let db = &valine.db;
     let fever_auth = &valine.auth;
     let req_path = req.uri().path().to_owned();
-    if req_path == "/metrics" {
-        metrics.handle_metrics().await
-    } else if req_path.starts_with("/1.1/classes/Comment") {
+    if req_path.starts_with("/1.1/classes/Comment") {
         valine.handle_comment(req).await
     } else if req_path.starts_with("/1.1/cloudQuery") {
         valine.handle_cloud_query(req).await
@@ -39,6 +39,8 @@ async fn handle(
         valine.handle_counter(req).await
     } else if req_path.starts_with(&format!("/{path}/fever")) {
         fever::fever(db, fever_auth, req).await
+    } else if req_path == "/metrics" {
+        metrics.handle_metrics().await
     } else if req_path.starts_with(&format!("/{path}/statistics/")) {
         metrics.handle_statistics(req).await
     } else if let Some(feed) = req_path.strip_prefix("/http/") {
@@ -122,6 +124,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         Some(v) => v,
         None => "https://example.com/",
     };
+    let args_redis = match m.get("--redis") {
+        Some(v) => v,
+        None => "rss_pipe.py",
+    };
 
     let addr: SocketAddr = args_bind.parse()?;
 
@@ -135,6 +141,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let pipe_instance = PIPE.get_or_init(|| pipe::Pipe::new(args_db, args_bark, args_proxy, pipe_script));
     let valine_instance = VALINE.get_or_init(|| valine::Valine::new(args_db, args_auth, args_bark, args_path));
 
+    let redis_hook_script = common::script::Script::new(args_redis);
+    redis::init_redis(args_db, Some(redis_hook_script));
+    redis::start_cleanup_task(args_db);
+
     println!(
         "Running with args (set with --key=value):\n \
         --db: {args_db}\n \
@@ -144,27 +154,43 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         --path: {args_path}\n \
         --pipe: {args_pipe}\n \
         --proxy: {args_proxy}\n \
-        --prefix: {args_prefix}"
+        --redis: {args_redis}\n \
+        --prefix: {args_prefix}\n \
+        Redis: enabled (PING, INFO, MGET, SET, EXISTS, EXPIRE, SELECT)"
     );
 
     let listener = TcpListener::bind(addr).await?;
     loop {
-        let (stream, remote_addr) = listener.accept().await?;
-        let service = service_fn(move |req| {
-            handle_wrapper(
-                args_path,
-                pipe_instance,
-                valine_instance,
-                metrics_instance,
-                remote_addr,
-                req,
-            )
-        });
-        let tokio_io = hyper_util::rt::tokio::TokioIo::new(stream);
-        tokio::task::spawn(async move {
-            if let Err(err) = Builder::new().serve_connection(tokio_io, service).await {
-                println!("!! error serving connection: {err:?}");
+        let mut first_byte = [0u8; 1];
+        let (mut stream, remote_addr) = listener.accept().await?;
+        if let Err(e) = stream.read_exact(&mut first_byte).await {
+            println!("!! error reading from connection: {e:?}");
+        } else {
+            let prefixed_stream = common::PrefixedStream::new(first_byte[0], stream);
+            if redis::is_redis_protocol(first_byte[0]) {
+                tokio::task::spawn(async move {
+                    if let Err(err) = redis::handle_connection(prefixed_stream).await {
+                        println!("!! error serving Redis connection from {remote_addr}: {err:?}");
+                    }
+                });
+            } else {
+                let service = service_fn(move |req| {
+                    handle_wrapper(
+                        args_path,
+                        pipe_instance,
+                        valine_instance,
+                        metrics_instance,
+                        remote_addr,
+                        req,
+                    )
+                });
+                let tokio_io = hyper_util::rt::tokio::TokioIo::new(prefixed_stream);
+                tokio::task::spawn(async move {
+                    if let Err(err) = Builder::new().serve_connection(tokio_io, service).await {
+                        println!("!! error serving connection: {err:?}");
+                    }
+                });
             }
-        });
+        }
     }
 }
