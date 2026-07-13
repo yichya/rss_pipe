@@ -56,25 +56,51 @@ pub fn set_item_saved_status(tx: &Transaction, id: &str, status: &str) {
     }
 }
 
-pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Option<Vec<Item>> {
-    // validation for filter_arg
-    for x in filter_arg.split(",") {
-        if let Err(e) = x.parse::<u64>() {
-            println!("!! parse argument failed for get_items: {filter_arg} ({e})");
-            return None;
+pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str, feed_ids: Option<&str>) -> Option<Vec<Item>> {
+    let mut conditions = Vec::new();
+    let mut order_desc = false;
+
+    match filter_op {
+        "max_id" => {
+            order_desc = true;
+            if let Ok(id) = filter_arg.parse::<u64>() {
+                if id > 0 {
+                    conditions.push(format!("id < {id}"));
+                }
+            }
+        }
+        "with_ids" => {
+            if !filter_arg.is_empty() {
+                conditions.push(format!("id in ({})", validate_comma_ids("with_ids", filter_arg)?));
+            }
+        }
+        _ => {
+            if let Ok(id) = filter_arg.parse::<u64>() {
+                if id > 0 {
+                    conditions.push(format!("id > {id}"));
+                }
+            }
         }
     }
 
-    let statement = format!(
-        "select {} from item {} limit 50", // make cargo fmt happy again
-        "id, feed_id, title, author, url, content, is_saved, is_read, counter, unixepoch(create_time)",
-        if filter_op == "with_ids" {
-            format!("where id in ({filter_arg})")
-        } else if filter_op == "since_id" {
-            format!("where id > {filter_arg}")
-        } else {
-            String::new() // todo: check if everything should be pulled here
+    if let Some(fids) = feed_ids {
+        if !fids.is_empty() {
+            conditions.push(format!("feed_id in ({})", validate_comma_ids("feed_ids", fids)?));
         }
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("where {}", conditions.join(" and "))
+    };
+
+    let order = if order_desc { "desc" } else { "asc" };
+    let statement = format!(
+        "select {} from item {} order by id {} limit 50",
+        "id, feed_id, title, author, url, content, is_saved, is_read, counter, unixepoch(create_time)",
+        where_clause,
+        order,
     );
 
     let result: Result<Vec<Item>, _> = tx
@@ -97,6 +123,19 @@ pub fn get_items(tx: &Transaction, filter_op: &str, filter_arg: &str) -> Option<
         .ok()?
         .collect();
     result.ok()
+}
+
+fn validate_comma_ids<'a>(label: &str, raw: &'a str) -> Option<&'a str> {
+    for x in raw.split(",") {
+        if x.is_empty() {
+            continue;
+        }
+        if x.parse::<u64>().is_err() {
+            println!("!! parse argument failed for {label}: {raw}");
+            return None;
+        }
+    }
+    Some(raw)
 }
 
 pub fn get_total_items(tx: &Transaction, extra_filter: &str) -> u64 {

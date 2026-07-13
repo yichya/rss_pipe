@@ -5,12 +5,15 @@ use rusqlite::Transaction;
 use crate::storage::items;
 
 pub fn get_items(tx: &Transaction, actions: &HashMap<String, String>) -> Vec<items::Item> {
-    if let Some(with_ids) = actions.get("with_ids") {
-        items::get_items(tx, "with_ids", &with_ids.replace("%2C", ",")).unwrap_or_default()
-    } else if let Some(since_id) = actions.get("since_id") {
-        items::get_items(tx, "since_id", since_id).unwrap_or_default()
+    let feed_ids = actions.get("feed_ids").map(|v| v.replace("%2C", ","));
+
+    if let Some(max_id) = actions.get("max_id") {
+        items::get_items(tx, "max_id", max_id, feed_ids.as_deref()).unwrap_or_default()
+    } else if let Some(with_ids) = actions.get("with_ids") {
+        items::get_items(tx, "with_ids", &with_ids.replace("%2C", ","), feed_ids.as_deref()).unwrap_or_default()
     } else {
-        vec![]
+        let since_id = actions.get("since_id").map(|s| s.as_str()).unwrap_or("");
+        items::get_items(tx, "since_id", since_id, feed_ids.as_deref()).unwrap_or_default()
     }
 }
 

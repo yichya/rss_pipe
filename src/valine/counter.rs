@@ -73,7 +73,8 @@ impl valine::Valine {
         } else {
             let counters: Vec<Counter> = storage::transaction(&self.db, |tx| {
                 storage::valine::find_item_id_by_url(tx, feed_id, &url).map_or(vec![], |c| {
-                    storage::items::get_items(tx, "with_ids", &c.to_string()).unwrap_or_default()
+                    let feed_ids = feed_id.to_string();
+                    storage::items::get_items(tx, "with_ids", &c.to_string(), Some(&feed_ids)).unwrap_or_default()
                 })
             })
             .iter()
